@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ximinf"
+version = "0.0.1"
+description = "Simulation Based Inference of Cosmological parameters in Jax using type Ia supernovae. "
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+authors = [
+    {name = "Adam Trigui", email = "a.trigui@ip2i.in2p3.fr"}
+]
+dependencies = [
+    "numpy>=1.26",
+    "jax>=0.4.30",
+    "flax>=0.9",
+    "pandas>=2"
+]
+keywords = ["cosmology", "supernovae", "simulation based inference"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/a-trigui/ximinf"
+# Documentation = "https://my_package.readthedocs.io"
+
+[project.optional-dependencies]
+notebooks = ["jupyter", "matplotlib"]
+
+docs = [
+    "sphinx>=7.0",
+    "sphinx_rtd_theme>=2.0",
+    "myst-parser>=2.0",  # to allow Markdown
+    "sphinx-autodoc-typehints>=2.0",
+]
