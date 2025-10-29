@@ -5,8 +5,6 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.13"
-  commands:
-    - sphinx-apidoc -o docs/api src/ximinf
 
 python:
   install:
@@ -16,6 +14,11 @@ python:
         - docs
   install:
    - requirements: docs/requirements.txt
+
+  build:
+  commands:
+    # generate API stubs first
+    - sphinx-apidoc -f -o docs/api src/ximinf
 
 sphinx:
   configuration: docs/conf.py
