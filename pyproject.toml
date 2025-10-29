@@ -16,7 +16,15 @@ dependencies = [
     "numpy>=1.26",
     "jax>=0.4.30",
     "flax>=0.9",
-    "pandas>=2"
+    "pandas>=2",
+    "skysurvey",
+    "skysurvey-sniapop",
+    "astropy",
+    "pyDOE",
+    "joblib",
+    "seaborn",
+    "scipy",
+    "blackjax"
 ]
 keywords = ["cosmology", "supernovae", "simulation based inference"]
 classifiers = [
