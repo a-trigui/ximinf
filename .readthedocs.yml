@@ -15,7 +15,7 @@ python:
   install:
    - requirements: docs/requirements.txt
 
-  build:
+build:
   commands:
     # generate API stubs first
     - sphinx-apidoc -f -o docs/api src/ximinf
