@@ -13,3 +13,5 @@ scipy
 blackjax
 sphinx
 myst-parser
+sphinx-autodoc-typehints
+sphinx_rtd_theme
