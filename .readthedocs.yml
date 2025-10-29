@@ -6,7 +6,7 @@ build:
   tools:
     python: "3.13"
   commands:
-    - sphinx-apidoc -o docs/api src/my_package
+    - sphinx-apidoc -o docs/api src/ximinf
 
 python:
   install:
