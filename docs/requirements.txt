@@ -11,3 +11,5 @@ joblib
 seaborn
 scipy
 blackjax
+sphinx
+myst-parser
