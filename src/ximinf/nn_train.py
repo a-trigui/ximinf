@@ -1,5 +1,6 @@
 # Standard and scientific Python libraries
 import numpy as np  # Numerical Python
+import scipy as sp
 
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
@@ -12,6 +13,53 @@ import optax  # Optimisers for JAX
 # Checkpointing
 import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
+
+from astropy.cosmology import Planck18
+
+
+def rm_cosmo(z, magobs, magabs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
+    """
+    Interpolate Planck18 distance modulus and compute residuals to the cosmology
+    
+    Parameters
+    ----------
+    z : array-like (JAX array)
+        Redshift values of the dataset.
+    magobs : array-like (JAX array)
+        Observed magnitudes.
+    magabs : array-like (JAX array)
+        Absolute magnitudes.
+    ref_mag : float, optional
+        Reference magnitude to normalize magnitudes (default=19.3).
+    z_max : float, optional
+        Maximum redshift for interpolation grid (default=0.2).
+    n_grid : int, optional
+        Number of points in the interpolation grid (default=1_000_000).
+
+    Returns
+    -------
+    mu_planck18 : jax.numpy.ndarray
+        Interpolated distance modulus.
+    magobs_corr : jax.numpy.ndarray
+        Observed magnitudes corrected for cosmology.
+    magabs_corr : jax.numpy.ndarray
+        Absolute magnitudes corrected for cosmology.
+    """
+    print('Building Planck18 interpolation...')
+    z_grid = np.linspace(1e-12, z_max, n_grid)
+    mu_grid = Planck18.distmod(z_grid).value
+    mu_interp_fn = sp.interpolate.interp1d(z_grid, mu_grid, kind='linear', bounds_error=False, fill_value='extrapolate')
+    print('... done')
+
+    print('Interpolating mu for dataset...')
+    mu_np = mu_interp_fn(np.array(z))
+    mu_planck18 = jnp.array(mu_np)
+    print('... done')
+
+    magobs_corr = magobs - mu_planck18 + ref_mag
+    magabs_corr = magabs + ref_mag
+
+    return mu_planck18, magobs_corr, magabs_corr
 
 
 def gaussian(x, mu, sigma):
@@ -246,14 +294,13 @@ class Phi(nnx.Module):
 
     def __call__(self, dropout, xy: jax.Array):  # pass the dropout object directly
         x = nnx.relu(self.linear1(xy))
-        #x = dropout(x)
         x = nnx.relu(self.linear4(x))
         return x
 
 
 class Rho(nnx.Module):
     def __init__(self, Nsize_p, Nsize_r, phi_batch, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + 4, Nsize_r, rngs=rngs)
+        self.linear1 = nnx.Linear(Nsize_p + 3, Nsize_r, rngs=rngs)
         self.linear5 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
     def __call__(self, dropout,pooled_features: jax.Array, theta: jax.Array):  
@@ -273,7 +320,7 @@ class DeepSetClassifier(nnx.Module):
 
     def __call__(self, input_data: jax.Array):
         N, input_size = input_data.shape  
-        M = (input_size - 4) // 3
+        M = (input_size - 3) // 3
         # Extract x and y from the first 2M elements, reshape them into (M, 2)
         xy = input_data[:, :2*M].reshape(N, M//self.phi_batch, 2*self.phi_batch) 
         
