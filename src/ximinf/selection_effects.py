@@ -1,78 +1,72 @@
 import numpy as np
 
-def malmquist_bias(simulation, m_lim, M):
+def malmquist_bias(flat: np.ndarray, m_lim: float, M: int, n_columns: int = 4) -> np.ndarray:
     """
-    Apply a magnitude-limited selection to a single simulation vector and zero-pad.
+    Apply magnitude-limited selection on a flattened array of a simulation.
 
     Parameters
     ----------
-    simulation : ndarray, shape (4*M + 3,)
-        Single simulation vector: [α, β, Mabs, 4*M SN entries]
-        Each SN entry ordered as [magobs, x1, c, z].
+    flat : np.ndarray
+        1D array containing [params..., col1..., col2..., ..., colN...] flattened.
+        Each column has length equal to the number of simulated SNe.
     m_lim : float
-        Limiting magnitude; SNe with magobs >= m_lim are removed.
+        Limiting magnitude for selection.
     M : int
-        Target number of SNe after selection (fixed padding size).
+        Target number of SNe after selection (for padding/truncation).
+    n_columns : int
+        Number of data columns per SN (default 4: ['magobs','x1','c','z']).
 
     Returns
     -------
-    out : ndarray, shape (4*M + 3,)
-        Same format as input, but with selection enforced and zero-padding applied.
+    np.ndarray
+        1D array: [params..., flattened selected columns padded/truncated to M entries]
+        Length = params_len + M * n_columns
     """
-    params = simulation[:3]
-    data   = simulation[3:].reshape(4, M)
-    
-    magobs = data[0]
-    x1     = data[1]
-    c      = data[2]
-    z      = data[3]
+    # Deduce params length from the input size
+    n_sne = flat.size // n_columns
+    params_len = flat.size - n_columns * n_sne
 
-    mask = magobs < m_lim
+    params = flat[:params_len]                   # Extract parameters
+    data = flat[params_len:]                     # Remaining data
+    n_sne = data.size // n_columns              # Number of SNe
+    data = data.reshape((n_columns, n_sne))     # Shape: (n_columns, n_sne)
 
-    n = mask.sum()
-    mag_out = np.zeros(M, dtype=np.float32)
-    x1_out  = np.zeros(M, dtype=np.float32)
-    c_out   = np.zeros(M, dtype=np.float32)
-    z_out   = np.zeros(M, dtype=np.float32)
+    # Apply magnitude limit (magobs is first row)
+    mask = data[0, :] < m_lim
+    selected = data[:, mask]                     # Shape: (n_columns, n_selected)
 
-    if n >= M:
-        mag_out[:] = magobs[mask][:M]
-        x1_out[:]  = x1[mask][:M]
-        c_out[:]   = c[mask][:M]
-        z_out[:]   = z[mask][:M]
+    n_selected = selected.shape[1]
+
+    # Pad or truncate to exactly M
+    if n_selected < M:
+        pad = np.zeros((n_columns, M - n_selected), dtype=flat.dtype)
+        selected = np.hstack([selected, pad])
     else:
-        mag_out[:n] = magobs[mask]
-        x1_out[:n]  = x1[mask]
-        c_out[:n]   = c[mask]
-        z_out[:n]   = z[mask]
+        selected = selected[:, :M]
 
-    data_out = np.concatenate([mag_out, x1_out, c_out, z_out]).astype(np.float32)
-
-    return np.concatenate([params, data_out])
+    # Flatten and prepend params
+    return np.concatenate([params, selected.flatten()])
 
 
-def malmquist_bias_batch(simulations, m_lim, M):
+def malmquist_bias_batch(simulations, m_lim, M, n_columns: int = 4):
     """
-    Apply Malmquist bias to a batch of simulations using malmquist_bias().
+    Batch version of Malmquist selection on flattened arrays.
 
     Parameters
     ----------
-    simulations : ndarray, shape (N, 4*M + 3)
-        Batch of simulations.
+    simulations : list of np.ndarray
+        Each element is a flattened array [params..., data...]
     m_lim : float
-        Limiting magnitude.
+        Magnitude limit
     M : int
-        Target number of SNe.
+        Target number of SNe per simulation
+    n_columns : int
+        Number of data columns per SN
 
     Returns
     -------
-    out : ndarray, shape (N, 4*M + 3)
-        Batch with Malmquist selection applied.
+    np.ndarray
+        2D array: each row is a flattened, magnitude-limited simulation of length params_len + M*n_columns
     """
-    N = simulations.shape[0]
-    out = np.zeros_like(simulations, dtype=np.float32)
-
-    for i in range(N):
-        out[i] = malmquist_bias(simulations[i], m_lim, M)
-
-    return out
+    result = [malmquist_bias(flat, m_lim, M, n_columns) for flat in simulations]
+    return np.vstack(result).astype(np.float32)

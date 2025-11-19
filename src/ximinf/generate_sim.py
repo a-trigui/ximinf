@@ -33,7 +33,7 @@ def flatten_df(df: pd.DataFrame, columns: list, params: list = None) -> np.ndarr
         
     return flat
 
-def unflatten_array(flat_array: np.ndarray, columns: list, n_params: int = 0):
+def unflatten_array(flat_array: np.ndarray, columns: list, n_points: int = 0):
     """
     Convert a flattened array back into its original columns and optional prepended parameters.
 
@@ -43,19 +43,24 @@ def unflatten_array(flat_array: np.ndarray, columns: list, n_params: int = 0):
         1D array containing the prepended parameters (optional) and column data.
     columns : list of str
         Original column names in the same order as they were flattened.
-    n_prepend : int
-        Number of elements at the start of the array that were prepended (e.g., α, β, mabs).
+    n_points : int
+        Number of rows (SNe) in the data. If > 0, the function will deduce
+        the number of prepended parameters automatically.
 
     Returns
     -------
     tuple
-        If n_prepend > 0: (prepended_params, df)  
+        If prepended_params exist: (prepended_params, df)  
         Else: df
     """
     flat_array = flat_array.astype(np.float32)
     
-    if n_params > 0:
-        prepended_params = flat_array[:n_params]
+    if n_points > 0:
+        # Deduce number of prepended parameters
+        n_params = flat_array.size - n_points * len(columns)
+        if n_params < 0:
+            raise ValueError("Number of points incompatible with flat array size")
+        prepended_params = flat_array[:n_params] if n_params > 0 else None
         data_array = flat_array[n_params:]
     else:
         prepended_params = None
@@ -69,14 +74,14 @@ def unflatten_array(flat_array: np.ndarray, columns: list, n_params: int = 0):
     split_arrays = np.split(data_array, len(columns))
     df = pd.DataFrame({col: arr for col, arr in zip(columns, split_arrays)})
 
-    if n_params > 0:
+    if prepended_params is not None:
         return prepended_params, df
     else:
         return df
     
-def simulate_one(i, alpha_, beta_, mabs_, sigma_int, z_max, M, N=None):
+def simulate_one(alpha_, beta_, mabs_, sigma_int, z_max, M, cols, N=None, i=None):
     # Print progress
-    if N!=None:
+    if N!=None and i!=None:
         if (i+1) % (N//10) == 0 or i == N-1:  # also print on last iteration
             print(f"Simulation {i+1}/{N}", end="\r", flush=True)
 
@@ -102,8 +107,9 @@ def simulate_one(i, alpha_, beta_, mabs_, sigma_int, z_max, M, N=None):
     errormodel = sim.noise_model
     errormodel.pop("localcolor", None)
     noisy_snia = snia.apply_gaussian_noise(errormodel)
+    noisy_snia.data
 
     # Create dataframe with only needed columns
     df = noisy_snia.data
-    flat = flatten_df(df, ['magobs', 'x1', 'c', 'z'],[alpha_, beta_, mabs_])
-    return i, flat
+    flat = flatten_df(df, cols, params=[alpha_, beta_, mabs_])
+    return flat
