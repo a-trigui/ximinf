@@ -1,6 +1,7 @@
 # Standard and scientific Python libraries
 import numpy as np  # Numerical Python
 import scipy as sp
+import pandas as pd
 
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
@@ -15,7 +16,6 @@ import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
 from astropy.cosmology import Planck18
-
 
 def rm_cosmo(z, magobs, magabs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
     """
