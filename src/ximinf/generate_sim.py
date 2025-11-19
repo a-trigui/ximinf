@@ -104,6 +104,6 @@ def simulate_one(i, alpha_, beta_, mabs_, sigma_int, z_max, M, N=None):
     noisy_snia = snia.apply_gaussian_noise(errormodel)
 
     # Create dataframe with only needed columns
-    df = snia.data
+    df = noisy_snia.data
     flat = flatten_df(df, ['magobs', 'x1', 'c', 'z'],[alpha_, beta_, mabs_])
     return i, flat
