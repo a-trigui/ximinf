@@ -100,12 +100,16 @@ def simulate_one(alpha_, beta_, mabs_, sigma_int, z_max, M, cols, N=None, i=None
             "alpha_low": float(alpha_),
             "alpha_high": float(alpha_),
             "beta":  float(beta_),
+            "gamma": 0.0 # The prompt ones get a shift of gamma
         }
     )
 
     # Apply realistic noise
     errormodel = sim.noise_model
-    errormodel.pop("localcolor", None)
+    errormodel["localcolor"]["kwargs"]["a"] = 2
+    errormodel["localcolor"]["kwargs"]["loc"] = 0.005
+    errormodel["localcolor"]["kwargs"]["scale"] = 0.05
+    # errormodel.pop("localcolor", None)
     noisy_snia = snia.apply_gaussian_noise(errormodel)
     noisy_snia.data
 
