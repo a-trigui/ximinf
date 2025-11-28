@@ -1,7 +1,8 @@
-# Standard and scientific Python libraries
+# Standard and scientific
+import os
+import json
 import numpy as np  # Numerical Python
 import scipy as sp
-import pandas as pd
 
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
@@ -15,6 +16,7 @@ import optax  # Optimisers for JAX
 import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
+# Cosmology
 from astropy.cosmology import Planck18
 
 def rm_cosmo(z, magobs, magabs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
@@ -188,7 +190,7 @@ def l2_loss(model, alpha):
     return alpha * sum((param ** 2).sum() for param in params)
 
 @nnx.jit
-def loss_fn(model, batch, l2_reg=1e-5):
+def loss_fn(model, batch, l2_reg=1e-7):
     """
     Compute the total loss, which is the sum of the data loss and L2 regularization.
 
@@ -288,54 +290,96 @@ def pred_step(model, x_batch):
     return logits
 
 class Phi(nnx.Module):
-    def __init__(self, Nsize, phi_batch, *, rngs):
-        self.linear1 = nnx.Linear(2*phi_batch, Nsize, rngs=rngs)
-        self.linear4 = nnx.Linear(Nsize, Nsize, rngs=rngs)
+    def __init__(self, Nsize, n_cols, *, rngs):
+        self.linear1 = nnx.Linear(n_cols, Nsize, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize, Nsize, rngs=rngs)
 
-    def __call__(self, dropout, xy: jax.Array):  # pass the dropout object directly
-        x = nnx.relu(self.linear1(xy))
-        x = nnx.relu(self.linear4(x))
-        return x
+    def __call__(self, dropout, x):
+        h = nnx.relu(self.linear1(x))
+        h = nnx.relu(self.linear2(h))
+        return h
 
 
 class Rho(nnx.Module):
-    def __init__(self, Nsize_p, Nsize_r, phi_batch, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + 3, Nsize_r, rngs=rngs)
-        self.linear5 = nnx.Linear(Nsize_r, 1, rngs=rngs)
+    def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
+        self.linear1 = nnx.Linear(Nsize_p + n_params, Nsize_r, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
-    def __call__(self, dropout,pooled_features: jax.Array, theta: jax.Array):  
-        x = jnp.concatenate([pooled_features, theta], axis=-1)  
+    def __call__(self, dropout, pooled_features, theta):
+        x = jnp.concatenate([pooled_features, theta], axis=-1)
         x = nnx.relu(self.linear1(x))
         x = dropout(x)
-        return self.linear5(x)
+        return self.linear2(x)
 
 
 
 class DeepSetClassifier(nnx.Module):
-    def __init__(self, dropout_rate, Nsize_p, Nsize_r, phi_batch, *, rngs):
-        self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
-        self.phi = Phi(Nsize_p, phi_batch, rngs=rngs)
-        self.rho = Rho(Nsize_p, Nsize_r, phi_batch, rngs=rngs)
-        self.phi_batch=phi_batch
+    def __init__(self, dropout_rate, Nsize_p, Nsize_r,
+                 n_cols, n_params, *, rngs):
 
-    def __call__(self, input_data: jax.Array):
-        N, input_size = input_data.shape  
-        M = (input_size - 3) // 3
-        # Extract x and y from the first 2M elements, reshape them into (M, 2)
-        xy = input_data[:, :2*M].reshape(N, M//self.phi_batch, 2*self.phi_batch) 
-        
-        mask = input_data[:, 2*M:3*M]
+        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.n_cols   = n_cols
+        self.n_params = n_params
 
-        # Extract (a, b) values (the last 2 elements)
-        theta = input_data[:, 3*M:]  
-        # Apply phi (process each (M, 2) pair)
-        h = self.phi(self.dropout1, xy)               
-        
-        masked_h = h * mask[..., jnp.newaxis]  # Apply mask
+        self.phi = Phi(Nsize_p, n_cols, rngs=rngs)
+        self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
-        normalisation = jnp.sum(mask, axis=1)
+    def __call__(self, input_data):
+        N, input_dim = input_data.shape
 
-        # Pool over the M dimension (mean across M points)
-        pooled = jnp.sum(masked_h, axis=1)/normalisation.reshape(N,1)    # ATTENTION mean changed for sum
-        return self.rho(self.dropout1, pooled, theta)
+        # Compute M first from input size
+        # Total input columns = M*n_cols + n_params + M (mask)
+        M = (input_dim - self.n_params) // (self.n_cols + 1)
 
+        # Slice mask (last M columns)
+        mask = input_data[:, -M:]         # shape (N, M)
+
+        # Slice main input (everything except the mask)
+        x_data = input_data[:, :-M]       # shape (N, M*n_cols + n_params)
+
+        # Reshape data columns
+        data = x_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
+
+        # Parameters
+        theta = x_data[:, M*self.n_cols:]  # shape (N, n_params)
+
+        # print(theta)
+
+        # Apply Phi
+        h = self.phi(self.dropout, data)
+
+        # Apply mask
+        h_masked = h * mask[..., None]
+
+        # Pool (masked average)mask_sum = jnp.sum(mask, axis=1, keepdims=True)
+        mask_sum = jnp.sum(mask, axis=1, keepdims=True)
+        mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
+        pooled = jnp.sum(h_masked, axis=1) / mask_sum
+
+        # Apply Rho
+        return self.rho(self.dropout, pooled, theta)
+
+
+
+
+
+
+def save_nn(model, path, model_config):
+    ckpt_dir = os.path.abspath(path)
+    ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
+
+    # Split the model into GraphDef (structure) and State (parameters + buffers)
+    _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
+
+    # Display for debugging (optional)
+    nnx.display(state)
+
+    # Initialize the checkpointer
+    checkpointer = ocp.StandardCheckpointer()
+
+    # Save State (parameters & non-trainable variables)
+    checkpointer.save(ckpt_dir / 'state', state)
+
+    # Save model configuration for later loading
+    with open(ckpt_dir / 'config.json', 'w') as f:
+        json.dump(model_config, f)

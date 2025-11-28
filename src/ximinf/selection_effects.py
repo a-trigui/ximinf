@@ -1,72 +1,67 @@
 import numpy as np
 
-def malmquist_bias(flat: np.ndarray, m_lim: float, M: int, n_columns: int = 4) -> np.ndarray:
+def malmquist_bias(sim, m_lim: float, M: int, columns=None):
     """
-    Apply magnitude-limited selection on a flattened array of a simulation.
+    Apply magnitude-limited selection on a single simulation in the new dict-of-lists format.
 
     Parameters
     ----------
-    flat : np.ndarray
-        1D array containing [params..., col1..., col2..., ..., colN...] flattened.
-        Each column has length equal to the number of simulated SNe.
+    sim : dict
+        Single simulation: {"data": {col_name: list}, "params": {param_name: value}}
     m_lim : float
         Limiting magnitude for selection.
     M : int
-        Target number of SNe after selection (for padding/truncation).
-    n_columns : int
-        Number of data columns per SN (default 4: ['magobs','x1','c','z']).
+        Target number of SNe after selection (padding/truncation).
+    columns : list of str
+        Which columns to select/apply magnitude cut on. If None, use all columns in sim['data'].
 
     Returns
     -------
-    np.ndarray
-        1D array: [params..., flattened selected columns padded/truncated to M entries]
-        Length = params_len + M * n_columns
+    dict
+        New simulation dict with magnitude-limited "data" and same "params".
+        Data lists are padded/truncated to length M.
     """
-    # Deduce params length from the input size
-    n_sne = flat.size // n_columns
-    params_len = flat.size - n_columns * n_sne
+    if columns is None:
+        columns = list(sim["data"].keys())
 
-    params = flat[:params_len]                   # Extract parameters
-    data = flat[params_len:]                     # Remaining data
-    n_sne = data.size // n_columns              # Number of SNe
-    data = data.reshape((n_columns, n_sne))     # Shape: (n_columns, n_sne)
+    # Convert magobs to numpy array for masking
+    magobs = np.array(sim["data"]["magobs"])
+    mask = magobs < m_lim
+    n_selected = mask.sum()
 
-    # Apply magnitude limit (magobs is first row)
-    mask = data[0, :] < m_lim
-    selected = data[:, mask]                     # Shape: (n_columns, n_selected)
+    new_data = {}
+    for col in columns:
+        col_values = np.array(sim["data"][col])
+        selected = col_values[mask]
+        if n_selected < M:
+            pad = np.zeros(M - n_selected, dtype=col_values.dtype)
+            selected = np.concatenate([selected, pad])
+        else:
+            selected = selected[:M]
+        new_data[col] = selected.tolist()
 
-    n_selected = selected.shape[1]
-
-    # Pad or truncate to exactly M
-    if n_selected < M:
-        pad = np.zeros((n_columns, M - n_selected), dtype=flat.dtype)
-        selected = np.hstack([selected, pad])
-    else:
-        selected = selected[:, :M]
-
-    # Flatten and prepend params
-    return np.concatenate([params, selected.flatten()])
+    return {"data": new_data, "params": sim["params"].copy()}
 
 
-def malmquist_bias_batch(simulations, m_lim, M, n_columns: int = 4):
+
+def malmquist_bias_batch(simulations, m_lim: float, M: int, columns=None):
     """
-    Batch version of Malmquist selection on flattened arrays.
+    Apply Malmquist selection to a batch of simulations in the new dict-of-lists format.
 
     Parameters
     ----------
-    simulations : list of np.ndarray
-        Each element is a flattened array [params..., data...]
+    simulations : list of dict
+        List of simulations in {"data": ..., "params": ...} format
     m_lim : float
         Magnitude limit
     M : int
         Target number of SNe per simulation
-    n_columns : int
-        Number of data columns per SN
+    columns : list of str
+        Columns to include. If None, use all columns in each simulation.
 
     Returns
     -------
-    np.ndarray
-        2D array: each row is a flattened, magnitude-limited simulation of length params_len + M*n_columns
+    list of dict
+        List of magnitude-limited simulations in the same format
     """
-    result = [malmquist_bias(flat, m_lim, M, n_columns) for flat in simulations]
-    return np.vstack(result).astype(np.float32)
+    return [malmquist_bias(sim, m_lim, M, columns) for sim in simulations]

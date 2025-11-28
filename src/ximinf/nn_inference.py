@@ -1,17 +1,26 @@
+# Standard
+import os
+import json
+
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
 import jax.numpy as jnp  # Numpy for JAX
 from functools import partial
+from flax import nnx
 
 # Checkpointing
 import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
+import pathlib  # File path handling library
 
 # Miscellaneous
 from IPython.display import clear_output  # To display JAX trees in Jupyter
 
 # Other libraries
 import blackjax  # MCMC library with JAX support
+
+# Modules
+import ximinf.nn_train as nntr
 
 def distance(theta1, theta2):
     """
@@ -226,46 +235,43 @@ def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_sam
         in_axes=(0, 0, 0)
     )(rng_keys, x_batch, theta_star_batch)
 
-# ========== Main ECP Computation ==========
-def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup, n_samples, rng_key):
-    """
-    Compute expected coverage probabilities (ECP) using vectorized sampling.
+def load_nn(path):
+    # Define the checkpoint directory
+    ckpt_dir = os.path.abspath(path)
+    ckpt_dir = pathlib.Path(ckpt_dir).resolve()
 
-    Parameters
-    ----------
-    model : callable
-        Neural likelihood ratio model.
-    x_list : jnp.ndarray, shape (N, D)
-        Batched input observations.
-    theta_star_list : jnp.ndarray, shape (N, NDIM)
-        Batched true parameters.
-    alpha_list : list of float
-        Credible region significance levels.
-    n_warmup : int
-        Number of warmup steps for each chain.
-    n_samples : int
-        Number of MCMC samples per chain.
-    rng_key : jax.random.PRNGKey
-        Master PRNG key.
+    # Ensure the folder is removed before saving
+    if ckpt_dir.exists()==False:
+        # Make an error
+        raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist. Please check the path.")
+    
+    # Load model configuration
+    config_path = ckpt_dir / 'config.json'
+    if not config_path.exists():
+        raise ValueError("Model config file not found in checkpoint directory.")
+    
+    with open(config_path, 'r') as f:
+        model_config = json.load(f)
 
-    Returns
-    -------
-    tuple
-        - ecp_vals : list of float, coverage probabilities at each alpha.
-        - posterior_un_last : jnp.ndarray, last posterior sample batch (n_samples, NDIM)
-    """
+    Nsize_p = model_config['Nsize_p']
+    Nsize_r = model_config['Nsize_r']
+    phi_batch = model_config['phi_batch']
 
-    N = x_list.shape[0]
-    rng_key, split_key = jax.random.split(rng_key)
-    rng_keys = jax.random.split(split_key, N)
+    # 1. Re-create the checkpointer
+    checkpointer = ocp.StandardCheckpointer()
 
-    # Vectorized call to batched MCMC sampler
-    rng_keys_out, f_vals, posterior_uns = batched_one_sample_step(
-        rng_keys, x_list, theta_star_list, n_warmup, n_samples
-    )
+    # Split the model into GraphDef (structure) and State (parameters + buffers)
+    abstract_model = nnx.eval_shape(lambda: nntr.DeepSetClassifier(0.05, Nsize_p, Nsize_r, phi_batch, rngs=nnx.Rngs(0)))
+    abs_graphdef, abs_rngkey, abs_rngcount, _ = nnx.split(abstract_model, nnx.RngKey, nnx.RngCount, ...)
 
-    # Compute ECP
-    ecp_vals = [jnp.mean(f_vals < (1 - alpha)) for alpha in alpha_list]
-    # posterior_un_last = posterior_uns[-1]
+    # 3. Restore
+    state_restored = checkpointer.restore(ckpt_dir / 'state')
+    #jax.tree.map(np.testing.assert_array_equal, abstract_state, state_restored)
+    print('NNX State restored: ')
+    nnx.display(state_restored)
 
-    return ecp_vals, posterior_uns, rng_keys_out
+    model = nnx.merge(abs_graphdef, abs_rngkey, abs_rngcount, state_restored)
+
+    nnx.display(model)
+
+    return model
