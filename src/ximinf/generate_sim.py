@@ -7,77 +7,77 @@ import skysurvey_sniapop
 import ztfidr.simulation as sim
 
 
-def flatten_df(df: pd.DataFrame, columns: list, params: list = None) -> np.ndarray:
-    """
-    Flatten selected columns from a DataFrame into a single 1D numpy array.
+# def flatten_df(df: pd.DataFrame, columns: list, params: list = None) -> np.ndarray:
+#     """
+#     Flatten selected columns from a DataFrame into a single 1D numpy array.
     
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input dataframe containing the data.
-    columns : list of str
-        Column names to extract and flatten.
-    prepend_params : list or None
-        Optional list of parameters to prepend to the flattened array.
+#     Parameters
+#     ----------
+#     df : pd.DataFrame
+#         Input dataframe containing the data.
+#     columns : list of str
+#         Column names to extract and flatten.
+#     prepend_params : list or None
+#         Optional list of parameters to prepend to the flattened array.
         
-    Returns
-    -------
-    np.ndarray
-        1D array containing [prepend_params..., col1..., col2..., ...]
-    """
-    arrays = [df[col].to_numpy(dtype=np.float32) for col in columns]
-    flat = np.concatenate(arrays)
+#     Returns
+#     -------
+#     np.ndarray
+#         1D array containing [prepend_params..., col1..., col2..., ...]
+#     """
+#     arrays = [df[col].to_numpy(dtype=np.float32) for col in columns]
+#     flat = np.concatenate(arrays)
     
-    if params is not None:
-        flat = np.concatenate([np.array(params, dtype=np.float32), flat])
+#     if params is not None:
+#         flat = np.concatenate([np.array(params, dtype=np.float32), flat])
         
-    return flat
+#     return flat
 
-def unflatten_array(flat_array: np.ndarray, columns: list, n_points: int = 0):
-    """
-    Convert a flattened array back into its original columns and optional prepended parameters.
+# def unflatten_array(flat_array: np.ndarray, columns: list, n_points: int = 0):
+#     """
+#     Convert a flattened array back into its original columns and optional prepended parameters.
 
-    Parameters
-    ----------
-    flat_array : np.ndarray
-        1D array containing the prepended parameters (optional) and column data.
-    columns : list of str
-        Original column names in the same order as they were flattened.
-    n_points : int
-        Number of rows (SNe) in the data. If > 0, the function will deduce
-        the number of prepended parameters automatically.
+#     Parameters
+#     ----------
+#     flat_array : np.ndarray
+#         1D array containing the prepended parameters (optional) and column data.
+#     columns : list of str
+#         Original column names in the same order as they were flattened.
+#     n_points : int
+#         Number of rows (SNe) in the data. If > 0, the function will deduce
+#         the number of prepended parameters automatically.
 
-    Returns
-    -------
-    tuple
-        If prepended_params exist: (prepended_params, df)  
-        Else: df
-    """
-    flat_array = flat_array.astype(np.float32)
+#     Returns
+#     -------
+#     tuple
+#         If prepended_params exist: (prepended_params, df)  
+#         Else: df
+#     """
+#     flat_array = flat_array.astype(np.float32)
     
-    if n_points > 0:
-        # Deduce number of prepended parameters
-        n_params = flat_array.size - n_points * len(columns)
-        if n_params < 0:
-            raise ValueError("Number of points incompatible with flat array size")
-        prepended_params = flat_array[:n_params] if n_params > 0 else None
-        data_array = flat_array[n_params:]
-    else:
-        prepended_params = None
-        data_array = flat_array
+#     if n_points > 0:
+#         # Deduce number of prepended parameters
+#         n_params = flat_array.size - n_points * len(columns)
+#         if n_params < 0:
+#             raise ValueError("Number of points incompatible with flat array size")
+#         prepended_params = flat_array[:n_params] if n_params > 0 else None
+#         data_array = flat_array[n_params:]
+#     else:
+#         prepended_params = None
+#         data_array = flat_array
 
-    n_rows = data_array.size // len(columns)
-    if n_rows * len(columns) != data_array.size:
-        raise ValueError("Flat array size is not compatible with number of columns")
+#     n_rows = data_array.size // len(columns)
+#     if n_rows * len(columns) != data_array.size:
+#         raise ValueError("Flat array size is not compatible with number of columns")
     
-    # Split array into columns
-    split_arrays = np.split(data_array, len(columns))
-    df = pd.DataFrame({col: arr for col, arr in zip(columns, split_arrays)})
+#     # Split array into columns
+#     split_arrays = np.split(data_array, len(columns))
+#     df = pd.DataFrame({col: arr for col, arr in zip(columns, split_arrays)})
 
-    if prepended_params is not None:
-        return prepended_params, df
-    else:
-        return df
+#     if prepended_params is not None:
+#         return prepended_params, df
+#     else:
+#         return df
     
 def simulate_one(params_dict, sigma_int, z_max, M, cols, N=None, i=None):
     """
@@ -129,7 +129,4 @@ def simulate_one(params_dict, sigma_int, z_max, M, cols, N=None, i=None):
     # Collect requested columns as lists
     data_dict = {col: list(df[col]) for col in cols if col in df}
 
-    return {
-        "data": data_dict,
-        "params": params_dict.copy()
-    }
+    return data_dict

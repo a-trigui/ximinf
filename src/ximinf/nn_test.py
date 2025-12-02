@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import blackjax
 from functools import partial
+from tqdm.notebook import tqdm
 
 def distance(theta1, theta2):
     """
@@ -44,7 +45,7 @@ def log_prior(theta, bounds):
     in_bounds = jnp.all((theta >= bounds[:, 0]) & (theta <= bounds[:, 1]))
     return jnp.where(in_bounds, 0.0, -jnp.inf)
 
-def log_prob_fn(theta, model, xy_noise):
+def log_prob_fn(theta, model, xy_noise, bounds):
     """
     Compute the log-probability for the parameter `theta` using a 
     log-prior and the log-likelihood from the neural likelihood ratio approximation.
@@ -64,7 +65,7 @@ def log_prob_fn(theta, model, xy_noise):
         The log-probability, which is the sum of the log-prior and the log-likelihood.
     """
 
-    lp = log_prior(theta)
+    lp = log_prior(theta, bounds)
     lp = jnp.where(jnp.isfinite(lp), lp, -jnp.inf)
     xy_flat = xy_noise.squeeze()
     inp = jnp.concatenate([xy_flat, theta])[None, :]
@@ -136,8 +137,8 @@ def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
 
 
 # ========== JIT‐compiled per‐sample step ==========
-@partial(jax.jit, static_argnums=(3, 4))
-def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, a_min, a_max, b_min, b_max):
+@partial(jax.jit, static_argnums=(3, 4, 5))
+def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, bounds):
     """
     Sample from the posterior distribution using Hamiltonian Monte Carlo (HMC) 
     with NUTS (No-U-Turn Sampler) for a given `log_prob`.
@@ -162,100 +163,84 @@ def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, a_min, 
     """
 
     # Draw a random reference
-    rng_key, theta_r0 = sample_reference_point(rng_key)
+    rng_key, theta_r0 = sample_reference_point(rng_key, bounds)
 
     def log_post(theta):
-        return log_prob_fn(theta, model, xi)
+        return log_prob_fn(theta, model, xi, bounds)
 
     # Run MCMC
     rng_key, posterior = sample_posterior(log_post, n_warmup, n_samples, theta_star, rng_key)
 
-    # Un-normalize reference and chain samples
-    span = jnp.array([a_max - a_min,
-                      b_max - b_min])
-    theta_r = theta_r0 #* span + jnp.array([a_min, b_min])
-    theta_star_un = theta_star #* span + jnp.array([a_min, b_min])
-    posterior_un = posterior #* span + jnp.array([a_min, b_min])
-
-    # Compute e-c-p component using full NDIM norm
-    d_star = distance(theta_star_un, theta_r)
-    # compute distances for all samples in one call
-    d_samples = jnp.linalg.norm(posterior_un - theta_r, axis=1)
+    # Compute e-c-p distances
+    d_star = distance(theta_star, theta_r0)
+    d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
     f_val = jnp.mean(d_samples < d_star)
 
-    return rng_key, f_val, posterior_un
+    return rng_key, f_val, posterior
 
-def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_samples):
+
+def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_samples, model, bounds):
     """
     Vectorized wrapper over `one_sample_step` using jax.vmap.
-
-    Parameters
-    ----------
-    rng_keys : jnp.ndarray
-        Array of PRNGKeys, one per batch element.
-    x_batch : jnp.ndarray
-        Batched input data, shape (N, D).
-    theta_star_batch : jnp.ndarray
-        Batched ground-truth parameters, shape (N, NDIM).
-    n_warmup : int
-        Number of warmup steps for MCMC.
-    n_samples : int
-        Number of posterior samples per run.
-
-    Returns
-    -------
-    tuple
-        - rng_keys_out : jnp.ndarray, updated RNG keys.
-        - f_vals : jnp.ndarray, shape (N,), scalar per-sample coverage indicators.
-        - posterior_uns : jnp.ndarray, shape (N, n_samples, NDIM), unnormalized posterior samples.
+    Returns proper f_vals for ECP computation.
     """
-
-    # vmap over one_sample_step: (rng, x, theta) -> (rng_out, f_val, posterior_un)
     return jax.vmap(
-        lambda rng, x, theta: one_sample_step(rng, x[None, :], theta, n_warmup, n_samples),
+        lambda rng, x, theta: one_sample_step(rng, x[None, :], theta, n_warmup, n_samples, model, bounds),
         in_axes=(0, 0, 0)
     )(rng_keys, x_batch, theta_star_batch)
 
-# ========== Main ECP Computation ==========
-def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup, n_samples, rng_key):
+
+def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup, n_samples, rng_key, bounds):
     """
     Compute expected coverage probabilities (ECP) using vectorized sampling.
-
-    Parameters
-    ----------
-    model : callable
-        Neural likelihood ratio model.
-    x_list : jnp.ndarray, shape (N, D)
-        Batched input observations.
-    theta_star_list : jnp.ndarray, shape (N, NDIM)
-        Batched true parameters.
-    alpha_list : list of float
-        Credible region significance levels.
-    n_warmup : int
-        Number of warmup steps for each chain.
-    n_samples : int
-        Number of MCMC samples per chain.
-    rng_key : jax.random.PRNGKey
-        Master PRNG key.
-
-    Returns
-    -------
-    tuple
-        - ecp_vals : list of float, coverage probabilities at each alpha.
-        - posterior_un_last : jnp.ndarray, last posterior sample batch (n_samples, NDIM)
+    Returns proper f_vals for ECP computation.
     """
-
     N = x_list.shape[0]
     rng_key, split_key = jax.random.split(rng_key)
     rng_keys = jax.random.split(split_key, N)
 
-    # Vectorized call to batched MCMC sampler
-    rng_keys_out, f_vals, posterior_uns = batched_one_sample_step(
-        rng_keys, x_list, theta_star_list, n_warmup, n_samples
+    # Batched MCMC and distance evaluation
+    _, f_vals, posterior_uns = batched_one_sample_step(
+        rng_keys, x_list, theta_star_list, n_warmup, n_samples, model, bounds
     )
 
-    # Compute ECP
+    # Compute ECP values for each alpha
     ecp_vals = [jnp.mean(f_vals < (1 - alpha)) for alpha in alpha_list]
-    posterior_un_last = posterior_uns[-1]
+
+    return ecp_vals, f_vals, posterior_uns, rng_key
+
+
+def compute_ecp_tarp_jitted_with_progress(model, x_list, theta_star_list, alpha_list,
+                                          n_warmup, n_samples, rng_key, bounds,
+                                          batch_size=20):
+    """
+    Compute ECP using JITed MCMC in batches with progress reporting via tqdm.
+    Returns correct f_vals for all simulations.
+    """
+    N = x_list.shape[0]
+
+    posterior_list = []
+    f_vals_list = []
+
+    for start in tqdm(range(0, N, batch_size), desc="Computing ECP batches"):
+        end = min(start + batch_size, N)
+        x_batch = x_list[start:end]
+        theta_batch = theta_star_list[start:end]
+
+        # Compute ECP and posterior for batch
+        _, f_vals_batch, posterior_batch, rng_key = compute_ecp_tarp_jitted(
+            model, x_batch, theta_batch, alpha_list,
+            n_warmup, n_samples, rng_key, bounds
+        )
+
+        posterior_list.append(posterior_batch)
+        f_vals_list.append(f_vals_batch)
+
+    # Concatenate across batches
+    posterior_uns = jnp.concatenate(posterior_list, axis=0)
+    f_vals_all = jnp.concatenate(f_vals_list, axis=0)
+
+    # Compute final ECP for each alpha
+    ecp_vals = [jnp.mean(f_vals_all < (1 - alpha)) for alpha in alpha_list]
 
     return ecp_vals, posterior_uns, rng_key

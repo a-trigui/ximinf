@@ -190,7 +190,7 @@ def l2_loss(model, alpha):
     return alpha * sum((param ** 2).sum() for param in params)
 
 @nnx.jit
-def loss_fn(model, batch, l2_reg=1e-7):
+def loss_fn(model, batch, l2_reg=1e-5):
     """
     Compute the total loss, which is the sum of the data loss and L2 regularization.
 
@@ -331,17 +331,14 @@ class DeepSetClassifier(nnx.Module):
         # Total input columns = M*n_cols + n_params + M (mask)
         M = (input_dim - self.n_params) // (self.n_cols + 1)
 
-        # Slice mask (last M columns)
-        mask = input_data[:, -M:]         # shape (N, M)
-
-        # Slice main input (everything except the mask)
-        x_data = input_data[:, :-M]       # shape (N, M*n_cols + n_params)
-
         # Reshape data columns
-        data = x_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
+        data = input_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
+
+        # Slice mask (last M columns)
+        mask = input_data[:, -M-self.n_params:-self.n_params]         # shape (N, M)
 
         # Parameters
-        theta = x_data[:, M*self.n_cols:]  # shape (N, n_params)
+        theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
         # print(theta)
 
@@ -358,9 +355,6 @@ class DeepSetClassifier(nnx.Module):
 
         # Apply Rho
         return self.rho(self.dropout, pooled, theta)
-
-
-
 
 
 

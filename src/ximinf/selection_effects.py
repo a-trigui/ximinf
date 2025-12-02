@@ -1,46 +1,48 @@
 import numpy as np
 
-def malmquist_bias(sim, m_lim: float, M: int, columns=None):
+import numpy as np
+
+def malmquist_bias(sim_data, m_lim: float, M: int, columns=None):
     """
-    Apply magnitude-limited selection on a single simulation in the new dict-of-lists format.
+    Apply magnitude-limited selection on a single simulation's data.
+    Only returns data arrays, no params.
 
     Parameters
     ----------
-    sim : dict
-        Single simulation: {"data": {col_name: list}, "params": {param_name: value}}
+    sim_data : dict
+        Dictionary of columns: {col_name: array of length M}.
     m_lim : float
-        Limiting magnitude for selection.
+        Limiting magnitude.
     M : int
-        Target number of SNe after selection (padding/truncation).
+        Target number of SNe after selection.
     columns : list of str
-        Which columns to select/apply magnitude cut on. If None, use all columns in sim['data'].
+        Columns to select/apply magnitude cut. If None, use all columns.
 
     Returns
     -------
     dict
-        New simulation dict with magnitude-limited "data" and same "params".
-        Data lists are padded/truncated to length M.
+        Dictionary of selected/padded/truncated data arrays.
     """
     if columns is None:
-        columns = list(sim["data"].keys())
+        columns = list(sim_data.keys())
 
-    # Convert magobs to numpy array for masking
-    magobs = np.array(sim["data"]["magobs"])
+    magobs = np.asarray(sim_data['magobs'])
     mask = magobs < m_lim
     n_selected = mask.sum()
 
     new_data = {}
     for col in columns:
-        col_values = np.array(sim["data"][col])
+        col_values = np.asarray(sim_data[col])
         selected = col_values[mask]
         if n_selected < M:
             pad = np.zeros(M - n_selected, dtype=col_values.dtype)
             selected = np.concatenate([selected, pad])
         else:
             selected = selected[:M]
-        new_data[col] = selected.tolist()
+        new_data[col] = selected
 
-    return {"data": new_data, "params": sim["params"].copy()}
+    return new_data
+
 
 
 
