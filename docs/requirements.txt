@@ -18,6 +18,5 @@ skysurvey-sniapop>=0.3.1,<1
 # Documentation
 sphinx
 myst-parser
-sphinx-autodoc-typehints
-sphinx_rtd_theme
-sphinx.ext.napoleon
+sphinx-autodoc-typehints>=3.5.0
+sphinx_rtd_theme>=3.0.2
