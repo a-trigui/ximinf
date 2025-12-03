@@ -126,6 +126,7 @@ def inference_loop(rng_key, kernel, initial_state, num_samples):
     _, states = jax.lax.scan(one_step, initial_state, keys)
     return states
 
+@partial(jax.jit, static_argnums=(0, 1, 2))
 def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
     rng_key, warmup_key, sample_key = jax.random.split(rng_key, 3)

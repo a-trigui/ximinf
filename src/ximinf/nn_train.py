@@ -294,7 +294,7 @@ class Phi(nnx.Module):
         self.linear1 = nnx.Linear(n_cols, Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize, Nsize, rngs=rngs)
 
-    def __call__(self, dropout, x):
+    def __call__(self, x):
         h = nnx.relu(self.linear1(x))
         h = nnx.relu(self.linear2(h))
         return h
@@ -351,7 +351,7 @@ class DeepSetClassifier(nnx.Module):
         # Pool (masked average)mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
-        pooled = jnp.sum(h_masked, axis=1) / mask_sum
+        pooled = jnp.sum(h_masked, axis=1) / mask_sum # Try jnp.sqrt(mask_sum) ?
 
         # Apply Rho
         return self.rho(self.dropout, pooled, theta)
@@ -366,7 +366,7 @@ def save_nn(model, path, model_config):
     _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
 
     # Display for debugging (optional)
-    nnx.display(state)
+    # nnx.display(state)
 
     # Initialize the checkpointer
     checkpointer = ocp.StandardCheckpointer()
