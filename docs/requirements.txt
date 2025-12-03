@@ -22,4 +22,4 @@ sphinx-autodoc-typehints>=3.5.0
 sphinx_rtd_theme>=3.0.2
 
 # Ximinf
--e .
+# -e .
