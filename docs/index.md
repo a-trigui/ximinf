@@ -12,13 +12,24 @@ This documentation will guide you through installation, usage, and the API refer
 :maxdepth: 2
 :hidden:
 
-api/index
+api/ximinf
 ```
+
+---
 
 ## Quickstart
+
 ```python
-
 import ximinf
-
 ```
 
+---
+
+## API Reference
+
+```eval-rst
+.. automodule:: ximinf
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
