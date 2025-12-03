@@ -5,9 +5,6 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
-  commands:
-    # Nothing extra is needed; Sphinx will be invoked automatically
-    # API docs are generated on the fly with autodoc
 
 # Python environment
 python:
