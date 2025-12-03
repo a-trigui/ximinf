@@ -20,7 +20,7 @@ try:
     # Replace 'your_package_name' with your actual package name
     release = importlib.metadata.version("ximinf")
 except importlib.metadata.PackageNotFoundError:
-    release = "0.0.0"
+    release = "0.0.3"
 
 # Short X.Y version for display
 version = ".".join(release.split(".")[:2])
