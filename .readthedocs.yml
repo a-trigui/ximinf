@@ -11,7 +11,8 @@ build:
     # Regenerate API documentation
     - sphinx-apidoc -o docs/api src/ximinf --separate --force
     # Build the HTML documentation
-    - sphinx-build -b html docs docs/_build/html
+    # - sphinx-build -b html docs docs/_build/html
+    - sphinx-build -b html docs $READTHEDOCS_OUTPUT/html
 
 # Sphinx configuration
 sphinx:
