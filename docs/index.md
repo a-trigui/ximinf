@@ -1,8 +1,8 @@
 # Ximinf Documentation
 
-Welcome to **ximinf** — **Simulation-Based Inference of Cosmological Parameters in JAX using Type Ia Supernovae**.
+Welcome to **ximinf** — Simulation-Based Inference of Cosmological Parameters in JAX using Type Ia Supernovae.
 
-This documentation will guide you through installation, usage, and the API reference.
+This documentation provides installation instructions, usage examples, and a complete API reference for all modules.
 
 ---
 
@@ -10,9 +10,12 @@ This documentation will guide you through installation, usage, and the API refer
 
 ```{toctree}
 :maxdepth: 2
-:hidden:
 
-api/ximinf
+api/generate_sim
+api/nn_inference
+api/nn_train
+api/nn_test
+api/selection_effects
 ```
 
 ---
@@ -27,9 +30,4 @@ import ximinf
 
 ## API Reference
 
-```eval-rst
-.. automodule:: ximinf
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```
+The API is organized by module. Use the links in the table of contents above to navigate to each section.

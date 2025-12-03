@@ -41,3 +41,7 @@ python:
     - method: pip
       path: .
     - requirements: docs/requirements.txt
+
+build:
+  commands:
+    - sphinx-apidoc -o api ../src/ximinf --separate --force
