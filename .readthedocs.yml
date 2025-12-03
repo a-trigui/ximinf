@@ -6,17 +6,12 @@ build:
   tools:
     python: "3.12"
   commands:
+    # Install Sphinx and dependencies
+    - pip install -r docs/requirements.txt
     # Regenerate API documentation
     - sphinx-apidoc -o docs/api src/ximinf --separate --force
     # Build the HTML documentation
     - sphinx-build -b html docs docs/_build/html
-
-# Python environment
-python:
-  install:
-    - method: pip
-      path: .
-    - requirements: docs/requirements.txt
 
 # Sphinx configuration
 sphinx:
