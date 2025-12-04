@@ -19,7 +19,7 @@ ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 # Cosmology
 from astropy.cosmology import Planck18
 
-def rm_cosmo(z, magobs, magabs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
+def rm_cosmo(z, magobs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
     """
     Interpolate Planck18 distance modulus and compute residuals to the cosmology
     
@@ -59,9 +59,8 @@ def rm_cosmo(z, magobs, magabs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
     print('... done')
 
     magobs_corr = magobs - mu_planck18 + ref_mag
-    magabs_corr = magabs + ref_mag
 
-    return mu_planck18, magobs_corr, magabs_corr
+    return mu_planck18, magobs_corr
 
 
 def gaussian(x, mu, sigma):
@@ -343,7 +342,7 @@ class DeepSetClassifier(nnx.Module):
         # print(theta)
 
         # Apply Phi
-        h = self.phi(self.dropout, data)
+        h = self.phi(data)
 
         # Apply mask
         h_masked = h * mask[..., None]

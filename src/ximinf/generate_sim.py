@@ -33,9 +33,7 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     """
     params_dict: dict of model parameters (alpha, beta, mabs, gamma, sigma_int, etc.)
     cols: list of columns to include in the output
-    Returns a dict with:
-        'data': dict of lists (one per column)
-        'params': dict of parameter values
+    Returns a dict of lists (one per column)
     """
     import ztfidr.simulation as sim
     import skysurvey_sniapop
