@@ -66,6 +66,20 @@ def rm_cosmo(z, magobs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
 def gaussian(x, mu, sigma):
     """
     Compute the normalized Gaussian function.
+
+    Parameters
+    ----------
+    x : array-like
+        Input values.
+    mu : float
+        Mean of the Gaussian.
+    sigma : float
+        Standard deviation of the Gaussian.
+
+    Returns
+    -------
+    array-like
+        The values of the Gaussian function evaluated at x.
     """
     prefactor = 1 / (np.sqrt(2 * np.pi * sigma**2))
     exponent = np.exp(-((x - mu)**2) / (2 * sigma**2))
@@ -289,22 +303,84 @@ def pred_step(model, x_batch):
     return logits
 
 class Phi(nnx.Module):
+    """
+    Neural network module for the Phi network in a Deep Set architecture.
+    """
     def __init__(self, Nsize, n_cols, *, rngs):
+        """
+        Initialize the Phi network.
+
+        Parameters
+        ----------
+        Nsize : int
+            Size of the hidden layers.
+        n_cols : int
+            Number of input columns (features).
+        rngs : nnx.Rngs
+            Random number generators.
+        """
         self.linear1 = nnx.Linear(n_cols, Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize, Nsize, rngs=rngs)
 
     def __call__(self, x):
+        """
+        Forward pass of the Phi network.
+
+        Parameters
+        ----------
+        x : array-like
+            Input data.
+
+        Returns
+        -------
+        array-like
+            Output of the Phi network.
+        """
         h = nnx.relu(self.linear1(x))
         h = nnx.relu(self.linear2(h))
         return h
 
 
 class Rho(nnx.Module):
+    """
+    Neural network module for the Rho network in a Deep Set architecture.
+    """
     def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
+        """
+        Initialize the Rho network.
+
+        Parameters
+        ----------
+        Nsize_p : int
+            Size of the pooled features.
+        Nsize_r : int
+            Size of the hidden layers in Rho.
+        n_params : int
+            Number of parameters (theta).
+        rngs : nnx.Rngs
+            Random number generators.
+        """
         self.linear1 = nnx.Linear(Nsize_p + n_params, Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, theta):
+        """
+        Forward pass of the Rho network.
+
+        Parameters
+        ----------
+        dropout : nnx.Dropout
+            Dropout layer.
+        pooled_features : array-like
+            Pooled features from the Phi network.
+        theta : array-like
+            Parameter values.
+
+        Returns
+        -------
+        array-like
+            Output of the Rho network (logits).
+        """
         x = jnp.concatenate([pooled_features, theta], axis=-1)
         x = nnx.relu(self.linear1(x))
         x = dropout(x)
@@ -313,8 +389,29 @@ class Rho(nnx.Module):
 
 
 class DeepSetClassifier(nnx.Module):
+    """
+    Deep Set Classifier model combining Phi and Rho networks.
+    """
     def __init__(self, dropout_rate, Nsize_p, Nsize_r,
                  n_cols, n_params, *, rngs):
+        """
+        Initialize the Deep Set Classifier.
+
+        Parameters
+        ----------
+        dropout_rate : float
+            Dropout rate.
+        Nsize_p : int
+            Size of the Phi network output.
+        Nsize_r : int
+            Size of the Rho network hidden layers.
+        n_cols : int
+            Number of input columns per element.
+        n_params : int
+            Number of parameters (theta).
+        rngs : nnx.Rngs
+            Random number generators.
+        """
 
         self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
         self.n_cols   = n_cols
@@ -324,6 +421,19 @@ class DeepSetClassifier(nnx.Module):
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
     def __call__(self, input_data):
+        """
+        Forward pass of the Deep Set Classifier.
+
+        Parameters
+        ----------
+        input_data : array-like
+            Input data containing set elements and parameters.
+
+        Returns
+        -------
+        array-like
+            Model output (logits).
+        """
         N, input_dim = input_data.shape
 
         # Compute M first from input size
@@ -358,6 +468,18 @@ class DeepSetClassifier(nnx.Module):
 
 
 def save_nn(model, path, model_config):
+    """
+    Save a neural network model to a checkpoint.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        The model to save.
+    path : str
+        Path to the checkpoint directory.
+    model_config : dict
+        Configuration dictionary for the model.
+    """
     ckpt_dir = os.path.abspath(path)
     ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
 

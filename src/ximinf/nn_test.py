@@ -183,7 +183,28 @@ def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, bounds)
 def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_samples, model, bounds):
     """
     Vectorized wrapper over `one_sample_step` using jax.vmap.
-    Returns proper f_vals for ECP computation.
+
+    Parameters
+    ----------
+    rng_keys : jax.random.PRNGKey
+        Batch of random keys.
+    x_batch : array-like
+        Batch of input data.
+    theta_star_batch : array-like
+        Batch of true parameter values.
+    n_warmup : int
+        Number of warmup steps.
+    n_samples : int
+        Number of samples.
+    model : callable
+        The model function.
+    bounds : array-like
+        Parameter bounds.
+
+    Returns
+    -------
+    tuple
+        (rng_keys, f_vals, posterior_samples)
     """
     return jax.vmap(
         lambda rng, x, theta: one_sample_step(rng, x[None, :], theta, n_warmup, n_samples, model, bounds),
@@ -194,7 +215,30 @@ def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_sam
 def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup, n_samples, rng_key, bounds):
     """
     Compute expected coverage probabilities (ECP) using vectorized sampling.
-    Returns proper f_vals for ECP computation.
+
+    Parameters
+    ----------
+    model : callable
+        The model function.
+    x_list : array-like
+        List of input data.
+    theta_star_list : array-like
+        List of true parameter values.
+    alpha_list : list of float
+        List of alpha values for ECP computation.
+    n_warmup : int
+        Number of warmup steps.
+    n_samples : int
+        Number of samples.
+    rng_key : jax.random.PRNGKey
+        Random key.
+    bounds : array-like
+        Parameter bounds.
+
+    Returns
+    -------
+    tuple
+        (ecp_vals, f_vals, posterior_uns, rng_key)
     """
     N = x_list.shape[0]
     rng_key, split_key = jax.random.split(rng_key)
@@ -216,7 +260,32 @@ def compute_ecp_tarp_jitted_with_progress(model, x_list, theta_star_list, alpha_
                                           batch_size=20):
     """
     Compute ECP using JITed MCMC in batches with progress reporting via tqdm.
-    Returns correct f_vals for all simulations.
+
+    Parameters
+    ----------
+    model : callable
+        The model function.
+    x_list : array-like
+        List of input data.
+    theta_star_list : array-like
+        List of true parameter values.
+    alpha_list : list of float
+        List of alpha values for ECP computation.
+    n_warmup : int
+        Number of warmup steps.
+    n_samples : int
+        Number of samples.
+    rng_key : jax.random.PRNGKey
+        Random key.
+    bounds : array-like
+        Parameter bounds.
+    batch_size : int, optional
+        Batch size for processing (default is 20).
+
+    Returns
+    -------
+    tuple
+        (ecp_vals, posterior_uns, rng_key)
     """
     N = x_list.shape[0]
 

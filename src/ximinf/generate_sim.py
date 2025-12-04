@@ -7,13 +7,19 @@ def scan_params(ranges, N, dtype=np.float32):
     """
     Generate sampled parameter sets using Latin Hypercube Sampling (LHS).
 
-    ranges : dict mapping parameter names to (min, max) tuples
-    N      : number of samples
-    dtype  : numeric type for the sampled arrays
+    Parameters
+    ----------
+    ranges : dict
+        Mapping parameter names to (min, max) tuples.
+    N : int
+        Number of samples.
+    dtype : data-type, optional
+        Numeric type for the sampled arrays (default is np.float32).
 
     Returns
     -------
-    params_dict : dict of parameter arrays of shape (N,)
+    params_dict : dict
+        Dictionary of parameter arrays of shape (N,).
     """
     param_names = list(ranges.keys())
     n_params = len(param_names)
@@ -31,9 +37,27 @@ def scan_params(ranges, N, dtype=np.float32):
     
 def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     """
-    params_dict: dict of model parameters (alpha, beta, mabs, gamma, sigma_int, etc.)
-    cols: list of columns to include in the output
-    Returns a dict of lists (one per column)
+    Simulate a single dataset of SNe Ia.
+
+    Parameters
+    ----------
+    params_dict : dict
+        Dictionary of model parameters (alpha, beta, mabs, gamma, sigma_int, etc.).
+    z_max : float
+        Maximum redshift.
+    M : int
+        Number of SNe to simulate.
+    cols : list of str
+        List of columns to include in the output.
+    N : int, optional
+        Total number of simulations (for progress printing).
+    i : int, optional
+        Current simulation index (for progress printing).
+
+    Returns
+    -------
+    data_dict : dict
+        Dictionary of lists (one per column) containing the simulated data.
     """
     import ztfidr.simulation as sim
     import skysurvey_sniapop

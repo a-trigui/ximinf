@@ -14,6 +14,24 @@ import pathlib  # File path handling library
 import ximinf.nn_train as nntr
 
 def load_nn(path):
+    """
+    Load a neural network model from a checkpoint.
+
+    Parameters
+    ----------
+    path : str
+        Path to the checkpoint directory.
+
+    Returns
+    -------
+    model : nnx.Module
+        The loaded neural network model.
+
+    Raises
+    ------
+    ValueError
+        If the checkpoint directory or config file does not exist.
+    """
     # Define the checkpoint directory
     ckpt_dir = os.path.abspath(path)
     ckpt_dir = pathlib.Path(ckpt_dir).resolve()
