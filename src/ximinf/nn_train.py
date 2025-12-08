@@ -3,6 +3,8 @@ import os
 import json
 import numpy as np  # Numerical Python
 import scipy as sp
+import matplotlib.pyplot as plt
+from IPython.display import clear_output
 
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
@@ -302,169 +304,120 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
-class Phi(nnx.Module):
+def train_loop(model,
+               optimizer,
+               train_data,
+               train_labels,
+               test_data,
+               test_labels,
+               key,
+               epochs,
+               batch_size,
+               patience,
+               metrics_history,
+               M,
+               N,
+               plot_flag=False):
     """
-    Neural network module for the Phi network in a Deep Set architecture.
+    Train loop with early stopping and optional plotting.
     """
-    def __init__(self, Nsize, n_cols, *, rngs):
-        """
-        Initialize the Phi network.
 
-        Parameters
-        ----------
-        Nsize : int
-            Size of the hidden layers.
-        n_cols : int
-            Number of input columns (features).
-        rngs : nnx.Rngs
-            Random number generators.
-        """
-        self.linear1 = nnx.Linear(n_cols, Nsize, rngs=rngs)
-        self.linear2 = nnx.Linear(Nsize, Nsize, rngs=rngs)
+    # Initialise stopping criteria
+    best_train_loss = jnp.inf
+    best_test_loss = jnp.inf
+    strikes = 0
 
-    def __call__(self, x):
-        """
-        Forward pass of the Phi network.
+    model.train()
 
-        Parameters
-        ----------
-        x : array-like
-            Input data.
+    for epoch in range(epochs):
+        # Shuffle the training data using JAX.
+        key, subkey = jax.random.split(key)
+        perm = jax.random.permutation(subkey, len(train_data))
+        train_data = train_data[perm]
+        train_labels = train_labels[perm]
+        del perm
+        
+        epoch_train_loss = 0
+        epoch_train_correct = 0
+        epoch_train_total = 0
+        
+        for i in range(0, len(train_data), batch_size):
+            # Get the current batch of data and labels
+            batch_data = train_data[i:i+batch_size]
+            batch_labels = train_labels[i:i+batch_size]
+            
+            # Perform a training step
+            loss, _ = loss_fn(model, (batch_data, batch_labels))
+            accuracy = accuracy_fn(model, (batch_data, batch_labels))
+            epoch_train_loss += loss
+            # Multiply batch accuracy by batch size to get number of correct predictions
+            epoch_train_correct += accuracy * len(batch_data)
+            epoch_train_total += len(batch_data)
+            train_step(model, optimizer, (batch_data, batch_labels))
+        
+        # Log the training metrics.
+        current_train_loss = epoch_train_loss / (len(train_data) / batch_size)
+        metrics_history['train_loss'].append(current_train_loss)
+        # Compute overall epoch accuracy
+        metrics_history['train_accuracy'].append(epoch_train_correct / epoch_train_total)
 
-        Returns
-        -------
-        array-like
-            Output of the Phi network.
-        """
-        h = nnx.relu(self.linear1(x))
-        h = nnx.relu(self.linear2(h))
-        return h
+        epoch_test_loss = 0
+        epoch_test_correct = 0
+        epoch_test_total = 0
 
+        # Compute the metrics on the test set using the same batching as training
+        for i in range(0, len(test_data), batch_size):
+            batch_data = test_data[i:i+batch_size]
+            batch_labels = test_labels[i:i+batch_size]
 
-class Rho(nnx.Module):
-    """
-    Neural network module for the Rho network in a Deep Set architecture.
-    """
-    def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
-        """
-        Initialize the Rho network.
+            loss, _ = loss_fn(model, (batch_data, batch_labels))
+            accuracy = accuracy_fn(model, (batch_data, batch_labels))
+            epoch_test_loss += loss
+            epoch_test_correct += accuracy * len(batch_data)
+            epoch_test_total += len(batch_data)
 
-        Parameters
-        ----------
-        Nsize_p : int
-            Size of the pooled features.
-        Nsize_r : int
-            Size of the hidden layers in Rho.
-        n_params : int
-            Number of parameters (theta).
-        rngs : nnx.Rngs
-            Random number generators.
-        """
-        self.linear1 = nnx.Linear(Nsize_p + n_params, Nsize_r, rngs=rngs)
-        self.linear2 = nnx.Linear(Nsize_r, 1, rngs=rngs)
+        # Log the test metrics.
+        current_test_loss = epoch_test_loss / (len(test_data) / batch_size)
+        metrics_history['test_loss'].append(current_test_loss)
+        metrics_history['test_accuracy'].append(epoch_test_correct / epoch_test_total)
+        
+        # Early Stopping Check
+        if current_test_loss < best_test_loss:
+            best_test_loss = current_test_loss  # Update best test loss
+            strikes = 0
+        elif current_train_loss >= best_train_loss:
+            strikes = 0
+        elif current_test_loss > best_test_loss and current_train_loss < best_train_loss:
+            strikes += 1
+        elif current_train_loss < best_train_loss:
+            best_train_loss = current_train_loss # Update best train loss
 
-    def __call__(self, dropout, pooled_features, theta):
-        """
-        Forward pass of the Rho network.
+        if strikes >= patience:
+            print(f"\n Early stopping at epoch {epoch+1} due to {patience} consecutive increases in loss gap \n")
+            break
 
-        Parameters
-        ----------
-        dropout : nnx.Dropout
-            Dropout layer.
-        pooled_features : array-like
-            Pooled features from the Phi network.
-        theta : array-like
-            Parameter values.
+        # Plotting (optional)
+        if plot_flag and epoch % 1 == 0:
+            clear_output(wait=True)
 
-        Returns
-        -------
-        array-like
-            Output of the Rho network (logits).
-        """
-        x = jnp.concatenate([pooled_features, theta], axis=-1)
-        x = nnx.relu(self.linear1(x))
-        x = dropout(x)
-        return self.linear2(x)
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
+            # Loss subplot
+            ax1.set_title(f'Loss for M:{M} and N:{N}')
+            for dataset in ('train', 'test'):
+                ax1.plot(metrics_history[f'{dataset}_loss'], label=f'{dataset}_loss')
+            ax1.legend()
+            ax1.set_yscale("log")
 
+            # Accuracy subplot
+            ax2.set_title('Accuracy')
+            for dataset in ('train', 'test'):
+                ax2.plot(metrics_history[f'{dataset}_accuracy'], label=f'{dataset}_accuracy')
+            ax2.legend()
 
-class DeepSetClassifier(nnx.Module):
-    """
-    Deep Set Classifier model combining Phi and Rho networks.
-    """
-    def __init__(self, dropout_rate, Nsize_p, Nsize_r,
-                 n_cols, n_params, *, rngs):
-        """
-        Initialize the Deep Set Classifier.
+            plt.show()
 
-        Parameters
-        ----------
-        dropout_rate : float
-            Dropout rate.
-        Nsize_p : int
-            Size of the Phi network output.
-        Nsize_r : int
-            Size of the Rho network hidden layers.
-        n_cols : int
-            Number of input columns per element.
-        n_params : int
-            Number of parameters (theta).
-        rngs : nnx.Rngs
-            Random number generators.
-        """
-
-        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
-        self.n_cols   = n_cols
-        self.n_params = n_params
-
-        self.phi = Phi(Nsize_p, n_cols, rngs=rngs)
-        self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
-
-    def __call__(self, input_data):
-        """
-        Forward pass of the Deep Set Classifier.
-
-        Parameters
-        ----------
-        input_data : array-like
-            Input data containing set elements and parameters.
-
-        Returns
-        -------
-        array-like
-            Model output (logits).
-        """
-        N, input_dim = input_data.shape
-
-        # Compute M first from input size
-        # Total input columns = M*n_cols + n_params + M (mask)
-        M = (input_dim - self.n_params) // (self.n_cols + 1)
-
-        # Reshape data columns
-        data = input_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
-
-        # Slice mask (last M columns)
-        mask = input_data[:, -M-self.n_params:-self.n_params]         # shape (N, M)
-
-        # Parameters
-        theta = input_data[:, -self.n_params:]  # shape (N, n_params)
-
-        # print(theta)
-
-        # Apply Phi
-        h = self.phi(data)
-
-        # Apply mask
-        h_masked = h * mask[..., None]
-
-        # Pool (masked average)mask_sum = jnp.sum(mask, axis=1, keepdims=True)
-        mask_sum = jnp.sum(mask, axis=1, keepdims=True)
-        mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
-        pooled = jnp.sum(h_masked, axis=1) / mask_sum # Try jnp.sqrt(mask_sum) ?
-
-        # Apply Rho
-        return self.rho(self.dropout, pooled, theta)
-
+    return model, metrics_history, key
 
 
 def save_nn(model, path, model_config):
