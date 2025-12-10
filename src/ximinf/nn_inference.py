@@ -53,19 +53,18 @@ def load_nn(path):
     Nsize_r = model_config['Nsize_r']
     n_cols = model_config['n_cols']
     n_params = model_config['n_params']
+    N_size_embed = model_config['N_size_embed']
 
     # 1. Re-create the checkpointer
     checkpointer = ocp.StandardCheckpointer()
 
     # Split the model into GraphDef (structure) and State (parameters + buffers)
-    abstract_model = nnx.eval_shape(lambda: nntr.DeepSetClassifier(0.05, Nsize_p, Nsize_r, n_cols, n_params, rngs=nnx.Rngs(0)))
+    abstract_model = nnx.eval_shape(lambda: nntr.DeepSetClassifier(0.0, Nsize_p, Nsize_r, N_size_embed, n_cols, n_params, rngs=nnx.Rngs(0)))
     abs_graphdef, abs_rngkey, abs_rngcount, _ = nnx.split(abstract_model, nnx.RngKey, nnx.RngCount, ...)
 
     # 3. Restore
     state_restored = checkpointer.restore(ckpt_dir / 'state')
-    #jax.tree.map(np.testing.assert_array_equal, abstract_state, state_restored)
     print('NNX State restored: ')
-    # nnx.display(state_restored)
 
     model = nnx.merge(abs_graphdef, abs_rngkey, abs_rngcount, state_restored)
 
