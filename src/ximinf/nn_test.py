@@ -45,35 +45,35 @@ def log_prior(theta, bounds):
     in_bounds = jnp.all((theta >= bounds[:, 0]) & (theta <= bounds[:, 1]))
     return jnp.where(in_bounds, 0.0, -jnp.inf)
 
-def log_prob_fn(theta, model, xy_noise, bounds):
-    """
-    Compute the log-probability for the parameter `theta` using a 
-    log-prior and the log-likelihood from the neural likelihood ratio approximation.
+# def log_prob_fn(theta, model, xy_noise, bounds):
+#     """
+#     Compute the log-probability for the parameter `theta` using a 
+#     log-prior and the log-likelihood from the neural likelihood ratio approximation.
 
-    Parameters
-    ----------
-    theta : array-like
-        The parameter values for which the log-probability is computed.
-    model : callable
-        A function that takes `theta` and produces model logits for computing the likelihood.
-    xy_noise : array-like
-        Input data with added noise for evaluating the likelihood.
+#     Parameters
+#     ----------
+#     theta : array-like
+#         The parameter values for which the log-probability is computed.
+#     model : callable
+#         A function that takes `theta` and produces model logits for computing the likelihood.
+#     xy_noise : array-like
+#         Input data with added noise for evaluating the likelihood.
 
-    Returns
-    -------
-    float
-        The log-probability, which is the sum of the log-prior and the log-likelihood.
-    """
+#     Returns
+#     -------
+#     float
+#         The log-probability, which is the sum of the log-prior and the log-likelihood.
+#     """
 
-    lp = log_prior(theta, bounds)
-    lp = jnp.where(jnp.isfinite(lp), lp, -jnp.inf)
-    xy_flat = xy_noise.squeeze()
-    inp = jnp.concatenate([xy_flat, theta])[None, :]
-    logits = model(inp)
-    p = jax.nn.sigmoid(logits).squeeze()
-    p = jnp.clip(p, 1e-6, 1 - 1e-6)
-    log_like = jnp.log(p) - jnp.log1p(-p)
-    return lp + log_like
+#     lp = log_prior(theta, bounds)
+#     lp = jnp.where(jnp.isfinite(lp), lp, -jnp.inf)
+#     xy_flat = xy_noise.squeeze()
+#     inp = jnp.concatenate([xy_flat, theta])[None, :]
+#     logits = model(inp)
+#     p = jax.nn.sigmoid(logits).squeeze()
+#     p = jnp.clip(p, 1e-6, 1 - 1e-6)
+#     log_like = jnp.log(p) - jnp.log1p(-p)
+#     return lp + log_like
 
 def sample_reference_point(rng_key, bounds):
     """
@@ -126,6 +126,68 @@ def inference_loop(rng_key, kernel, initial_state, num_samples):
     _, states = jax.lax.scan(one_step, initial_state, keys)
     return states
 
+def log_prob_fn_groups(theta, models_per_group, x, bounds, param_groups, param_names):
+    """
+    Compute the sum of log-likelihoods for all groups given full theta.
+
+    Parameters
+    ----------
+    theta : jnp.ndarray, shape (n_params,)
+        Full parameter vector.
+    models_per_group : list
+        List of DeepSetClassifier models, one per group.
+    x : jnp.ndarray
+        Input data sample (shape: (data_features + ... + n_params))
+    bounds : jnp.ndarray
+        Parameter bounds.
+    param_groups : list
+        List of parameter groups.
+    param_names : list
+        List of all parameter names in order.
+
+    Returns
+    -------
+    float
+        Sum of log-likelihoods over all groups.
+    """
+    log_lik_sum = 0.0
+
+    n_params = len(param_names)
+
+    # Use everything except the last n_params entries as data
+    data_part = x[:-n_params].reshape(1, -1)   # 2D
+    # If mask is required, you can extract it similarly here
+
+    for g, group in enumerate(param_groups):
+        # Determine visible parameters for this group
+        prev_groups = [
+            p
+            for i in range(g)
+            for p in (param_groups[i] if isinstance(param_groups[i], list) else [param_groups[i]])
+        ]
+        group_list = [group] if isinstance(group, str) else group
+        visible_param_names = prev_groups + group_list
+
+        # Get visible theta values
+        visible_idx = jnp.array([param_names.index(name) for name in visible_param_names])
+        theta_visible = theta[visible_idx].reshape(1, -1)  # make 2D
+
+        # Concatenate data with visible parameters
+        input_g = jnp.concatenate([data_part, theta_visible], axis=-1)
+
+        # Forward pass through the model
+        logits = models_per_group[g](input_g)
+        p = jax.nn.sigmoid(logits)
+
+        # Assume label = 1 (TARP)
+        y = 1.0
+        log_lik_sum += jnp.log(p + 1e-8) * y + jnp.log(1 - p + 1e-8) * (1 - y)
+
+    return jnp.squeeze(log_lik_sum)
+
+
+
+
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
@@ -137,42 +199,59 @@ def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     return rng_key, states.position
 
 
-# ========== JIT‐compiled per‐sample step ==========
-@partial(jax.jit, static_argnums=(3, 4, 5))
-def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, bounds):
+# # ========== JIT‐compiled per‐sample step ==========
+# @partial(jax.jit, static_argnums=(3, 4, 5))
+# def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, bounds):
+#     """
+#     Sample from the posterior distribution using Hamiltonian Monte Carlo (HMC) 
+#     with NUTS (No-U-Turn Sampler) for a given `log_prob`.
+
+#     Parameters
+#     ----------
+#     log_prob : callable
+#         The log-probability function for the model and parameters.
+#     n_warmup : int
+#         The number of warmup steps to adapt the sampler.
+#     n_samples : int
+#         The number of samples to generate after warmup.
+#     init_position : array-like
+#         The initial position for the chain (parameter values).
+#     rng_key : jax.random.PRNGKey
+#         The random key used for sampling.
+
+#     Returns
+#     -------
+#     jax.numpy.ndarray
+#         The sampled positions (parameters) from the posterior distribution.
+#     """
+
+#     # Draw a random reference
+#     rng_key, theta_r0 = sample_reference_point(rng_key, bounds)
+
+#     def log_post(theta):
+#         return log_prob_fn(theta, model, xi, bounds)
+
+#     # Run MCMC
+#     rng_key, posterior = sample_posterior(log_post, n_warmup, n_samples, theta_star, rng_key)
+
+#     # Compute e-c-p distances
+#     d_star = distance(theta_star, theta_r0)
+#     d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
+#     f_val = jnp.mean(d_samples < d_star)
+
+#     return rng_key, f_val, posterior
+
+def one_sample_step_groups(rng_key, xi, theta_star, n_warmup, n_samples, 
+                           models_per_group, bounds, param_groups, param_names):
     """
-    Sample from the posterior distribution using Hamiltonian Monte Carlo (HMC) 
-    with NUTS (No-U-Turn Sampler) for a given `log_prob`.
-
-    Parameters
-    ----------
-    log_prob : callable
-        The log-probability function for the model and parameters.
-    n_warmup : int
-        The number of warmup steps to adapt the sampler.
-    n_samples : int
-        The number of samples to generate after warmup.
-    init_position : array-like
-        The initial position for the chain (parameter values).
-    rng_key : jax.random.PRNGKey
-        The random key used for sampling.
-
-    Returns
-    -------
-    jax.numpy.ndarray
-        The sampled positions (parameters) from the posterior distribution.
+    Sample from posterior using sum of log-likelihoods over all groups.
     """
-
-    # Draw a random reference
     rng_key, theta_r0 = sample_reference_point(rng_key, bounds)
 
     def log_post(theta):
-        return log_prob_fn(theta, model, xi, bounds)
+        return log_prob_fn_groups(theta, models_per_group, xi, bounds, param_groups, param_names)
 
-    # Run MCMC
     rng_key, posterior = sample_posterior(log_post, n_warmup, n_samples, theta_star, rng_key)
-
-    # Compute e-c-p distances
     d_star = distance(theta_star, theta_r0)
     d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
     f_val = jnp.mean(d_samples < d_star)
@@ -180,73 +259,164 @@ def one_sample_step(rng_key, xi, theta_star, n_warmup, n_samples, model, bounds)
     return rng_key, f_val, posterior
 
 
-def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_samples, model, bounds):
-    """
-    Vectorized wrapper over `one_sample_step` using jax.vmap.
+# def batched_one_sample_step(rng_keys, x_batch, theta_star_batch, n_warmup, n_samples, model, bounds):
+#     """
+#     Vectorized wrapper over `one_sample_step` using jax.vmap.
 
-    Parameters
-    ----------
-    rng_keys : jax.random.PRNGKey
-        Batch of random keys.
-    x_batch : array-like
-        Batch of input data.
-    theta_star_batch : array-like
-        Batch of true parameter values.
-    n_warmup : int
-        Number of warmup steps.
-    n_samples : int
-        Number of samples.
-    model : callable
-        The model function.
-    bounds : array-like
-        Parameter bounds.
+#     Parameters
+#     ----------
+#     rng_keys : jax.random.PRNGKey
+#         Batch of random keys.
+#     x_batch : array-like
+#         Batch of input data.
+#     theta_star_batch : array-like
+#         Batch of true parameter values.
+#     n_warmup : int
+#         Number of warmup steps.
+#     n_samples : int
+#         Number of samples.
+#     model : callable
+#         The model function.
+#     bounds : array-like
+#         Parameter bounds.
 
-    Returns
-    -------
-    tuple
-        (rng_keys, f_vals, posterior_samples)
-    """
+#     Returns
+#     -------
+#     tuple
+#         (rng_keys, f_vals, posterior_samples)
+#     """
+#     return jax.vmap(
+#         lambda rng, x, theta: one_sample_step(rng, x[None, :], theta, n_warmup, n_samples, model, bounds),
+#         in_axes=(0, 0, 0)
+#     )(rng_keys, x_batch, theta_star_batch)
+
+def batched_one_sample_step_groups(rng_keys, x_batch, theta_star_batch,
+                                   n_warmup, n_samples, models_per_group, bounds, param_groups, param_names):
     return jax.vmap(
-        lambda rng, x, theta: one_sample_step(rng, x[None, :], theta, n_warmup, n_samples, model, bounds),
+        lambda rng, x, theta: one_sample_step_groups(rng, x[None, :], theta, n_warmup, n_samples,
+                                                     models_per_group, bounds, param_groups, param_names),
         in_axes=(0, 0, 0)
     )(rng_keys, x_batch, theta_star_batch)
 
 
-def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup, n_samples, rng_key, bounds):
+
+# def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup, n_samples, rng_key, bounds):
+#     """
+#     Compute expected coverage probabilities (ECP) using vectorized sampling.
+
+#     Parameters
+#     ----------
+#     model : callable
+#         The model function.
+#     x_list : array-like
+#         List of input data.
+#     theta_star_list : array-like
+#         List of true parameter values.
+#     alpha_list : list of float
+#         List of alpha values for ECP computation.
+#     n_warmup : int
+#         Number of warmup steps.
+#     n_samples : int
+#         Number of samples.
+#     rng_key : jax.random.PRNGKey
+#         Random key.
+#     bounds : array-like
+#         Parameter bounds.
+
+#     Returns
+#     -------
+#     tuple
+#         (ecp_vals, f_vals, posterior_uns, rng_key)
+#     """
+#     N = x_list.shape[0]
+#     rng_key, split_key = jax.random.split(rng_key)
+#     rng_keys = jax.random.split(split_key, N)
+
+#     # Batched MCMC and distance evaluation
+#     _, f_vals, posterior_uns = batched_one_sample_step_groups(
+#         rng_keys, x_list, theta_star_list, n_warmup, n_samples, model, bounds
+#     )
+
+#     # Compute ECP values for each alpha
+#     ecp_vals = [jnp.mean(f_vals < (1 - alpha)) for alpha in alpha_list]
+
+#     return ecp_vals, f_vals, posterior_uns, rng_key
+
+
+# def compute_ecp_tarp_jitted_with_progress(model, x_list, theta_star_list, alpha_list,
+#                                           n_warmup, n_samples, rng_key, bounds,
+#                                           batch_size=20):
+#     """
+#     Compute ECP using JITed MCMC in batches with progress reporting via tqdm.
+
+#     Parameters
+#     ----------
+#     model : callable
+#         The model function.
+#     x_list : array-like
+#         List of input data.
+#     theta_star_list : array-like
+#         List of true parameter values.
+#     alpha_list : list of float
+#         List of alpha values for ECP computation.
+#     n_warmup : int
+#         Number of warmup steps.
+#     n_samples : int
+#         Number of samples.
+#     rng_key : jax.random.PRNGKey
+#         Random key.
+#     bounds : array-like
+#         Parameter bounds.
+#     batch_size : int, optional
+#         Batch size for processing (default is 20).
+
+#     Returns
+#     -------
+#     tuple
+#         (ecp_vals, posterior_uns, rng_key)
+#     """
+#     N = x_list.shape[0]
+
+#     posterior_list = []
+#     f_vals_list = []
+
+#     for start in tqdm(range(0, N, batch_size), desc="Computing ECP batches"):
+#         end = min(start + batch_size, N)
+#         x_batch = x_list[start:end]
+#         theta_batch = theta_star_list[start:end]
+
+#         # Compute ECP and posterior for batch
+#         _, f_vals_batch, posterior_batch, rng_key = compute_ecp_tarp_jitted(
+#             model, x_batch, theta_batch, alpha_list,
+#             n_warmup, n_samples, rng_key, bounds
+#         )
+
+#         posterior_list.append(posterior_batch)
+#         f_vals_list.append(f_vals_batch)
+
+#     # Concatenate across batches
+#     posterior_uns = jnp.concatenate(posterior_list, axis=0)
+#     f_vals_all = jnp.concatenate(f_vals_list, axis=0)
+
+#     # Compute final ECP for each alpha
+#     ecp_vals = [jnp.mean(f_vals_all < (1 - alpha)) for alpha in alpha_list]
+
+#     return ecp_vals, posterior_uns, rng_key
+
+def compute_ecp_tarp_jitted_groups(models_per_group, x_list, theta_star_list, alpha_list,
+                                   n_warmup, n_samples, rng_key, bounds,
+                                   param_groups, param_names):
     """
-    Compute expected coverage probabilities (ECP) using vectorized sampling.
-
-    Parameters
-    ----------
-    model : callable
-        The model function.
-    x_list : array-like
-        List of input data.
-    theta_star_list : array-like
-        List of true parameter values.
-    alpha_list : list of float
-        List of alpha values for ECP computation.
-    n_warmup : int
-        Number of warmup steps.
-    n_samples : int
-        Number of samples.
-    rng_key : jax.random.PRNGKey
-        Random key.
-    bounds : array-like
-        Parameter bounds.
-
-    Returns
-    -------
-    tuple
-        (ecp_vals, f_vals, posterior_uns, rng_key)
+    Batched ECP computation using multiple group models.
     """
     N = x_list.shape[0]
     rng_key, split_key = jax.random.split(rng_key)
     rng_keys = jax.random.split(split_key, N)
 
     # Batched MCMC and distance evaluation
-    _, f_vals, posterior_uns = batched_one_sample_step(
-        rng_keys, x_list, theta_star_list, n_warmup, n_samples, model, bounds
+    _, f_vals, posterior_uns = batched_one_sample_step_groups(
+        rng_keys, x_list, theta_star_list, n_warmup, n_samples,
+        models_per_group, bounds, param_groups, param_names
     )
 
     # Compute ECP values for each alpha
@@ -254,39 +424,9 @@ def compute_ecp_tarp_jitted(model, x_list, theta_star_list, alpha_list, n_warmup
 
     return ecp_vals, f_vals, posterior_uns, rng_key
 
-
-def compute_ecp_tarp_jitted_with_progress(model, x_list, theta_star_list, alpha_list,
-                                          n_warmup, n_samples, rng_key, bounds,
-                                          batch_size=20):
-    """
-    Compute ECP using JITed MCMC in batches with progress reporting via tqdm.
-
-    Parameters
-    ----------
-    model : callable
-        The model function.
-    x_list : array-like
-        List of input data.
-    theta_star_list : array-like
-        List of true parameter values.
-    alpha_list : list of float
-        List of alpha values for ECP computation.
-    n_warmup : int
-        Number of warmup steps.
-    n_samples : int
-        Number of samples.
-    rng_key : jax.random.PRNGKey
-        Random key.
-    bounds : array-like
-        Parameter bounds.
-    batch_size : int, optional
-        Batch size for processing (default is 20).
-
-    Returns
-    -------
-    tuple
-        (ecp_vals, posterior_uns, rng_key)
-    """
+def compute_ecp_tarp_jitted_with_progress_groups(models_per_group, x_list, theta_star_list, alpha_list,
+                                                 n_warmup, n_samples, rng_key, bounds,
+                                                 param_groups, param_names, batch_size=20):
     N = x_list.shape[0]
 
     posterior_list = []
@@ -298,19 +438,18 @@ def compute_ecp_tarp_jitted_with_progress(model, x_list, theta_star_list, alpha_
         theta_batch = theta_star_list[start:end]
 
         # Compute ECP and posterior for batch
-        _, f_vals_batch, posterior_batch, rng_key = compute_ecp_tarp_jitted(
-            model, x_batch, theta_batch, alpha_list,
-            n_warmup, n_samples, rng_key, bounds
+        _, f_vals_batch, posterior_batch, rng_key = compute_ecp_tarp_jitted_groups(
+            models_per_group, x_batch, theta_batch, alpha_list,
+            n_warmup, n_samples, rng_key, bounds,
+            param_groups, param_names
         )
 
         posterior_list.append(posterior_batch)
         f_vals_list.append(f_vals_batch)
 
-    # Concatenate across batches
     posterior_uns = jnp.concatenate(posterior_list, axis=0)
     f_vals_all = jnp.concatenate(f_vals_list, axis=0)
 
-    # Compute final ECP for each alpha
     ecp_vals = [jnp.mean(f_vals_all < (1 - alpha)) for alpha in alpha_list]
 
     return ecp_vals, posterior_uns, rng_key
