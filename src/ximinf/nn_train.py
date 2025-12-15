@@ -331,11 +331,11 @@ def train_loop(model,
 
     for epoch in range(epochs):
         # Shuffle the training data using JAX.
-        key, subkey = jax.random.split(key)
-        perm = jax.random.permutation(subkey, len(train_data))
-        train_data = train_data[perm]
-        train_labels = train_labels[perm]
-        del perm
+        # key, subkey = jax.random.split(key)
+        # perm = jax.random.permutation(subkey, len(train_data))
+        # train_data = train_data[perm]
+        # train_labels = train_labels[perm]
+        # del perm
         
         epoch_train_loss = 0
         epoch_train_correct = 0
