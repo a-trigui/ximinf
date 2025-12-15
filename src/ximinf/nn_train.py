@@ -372,8 +372,8 @@ def train_loop(model,
 
         # Compute the metrics on the test set using the same batching as training
         for i in range(0, len(test_data), batch_size):
-            batch_data = test_data[i:i+batch_size]
-            batch_labels = test_labels[i:i+batch_size]
+            batch_data = jax.device_put(test_data[i:i+batch_size], gpu)
+            batch_labels = jax.device_put(test_labels[i:i+batch_size], gpu)
 
             loss, _ = loss_fn(model, (batch_data, batch_labels))
             accuracy = accuracy_fn(model, (batch_data, batch_labels))
