@@ -179,11 +179,9 @@ def log_prob_fn_groups(theta, models_per_group, x, bounds, param_groups, param_n
         logits = models_per_group[g](input_g)
         p = jax.nn.sigmoid(logits)
 
-        # Assume label = 1 (TARP)
-        y = 1.0
-        log_lik_sum += jnp.log(p + 1e-8) * y + jnp.log(1 - p + 1e-8) * (1 - y)
+        log_lik_sum += jnp.log(p) + jnp.log(1 - p)
 
-    return jnp.squeeze(log_lik_sum)
+    return jnp.squeeze(log_lik_sum) + log_prior(theta, bounds)
 
 
 

@@ -205,7 +205,7 @@ def l2_loss(model, alpha):
     return alpha * sum((param ** 2).sum() for param in params)
 
 @nnx.jit
-def loss_fn(model, batch, l2_reg=1e-5):
+def loss_fn(model, batch, l2_reg=1e-7):
     """
     Compute the total loss, which is the sum of the data loss and L2 regularization.
 
@@ -420,34 +420,61 @@ def train_loop(model,
     return model, metrics_history, key
 
 
-def save_nn(model, path, model_config):
+# def save_nn(model, path, model_config):
+#     """
+#     Save a neural network model to a checkpoint.
+
+#     Parameters
+#     ----------
+#     model : nnx.Module
+#         The model to save.
+#     path : str
+#         Path to the checkpoint directory.
+#     model_config : dict
+#         Configuration dictionary for the model.
+#     """
+#     ckpt_dir = os.path.abspath(path)
+#     ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
+
+#     # Split the model into GraphDef (structure) and State (parameters + buffers)
+#     _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
+
+#     # Display for debugging (optional)
+#     # nnx.display(state)
+
+#     # Initialize the checkpointer
+#     checkpointer = ocp.StandardCheckpointer()
+
+#     # Save State (parameters & non-trainable variables)
+#     checkpointer.save(ckpt_dir / 'state', state)
+
+#     # Save model configuration for later loading
+#     with open(ckpt_dir / 'config.json', 'w') as f:
+#         json.dump(model_config, f)
+
+def save_autoregressive_nn(models_per_group, path, model_config):
     """
-    Save a neural network model to a checkpoint.
+    Save an autoregressive stack of NNX models.
 
     Parameters
     ----------
-    model : nnx.Module
-        The model to save.
+    models_per_group : list[nnx.Module]
+        One model per autoregressive group.
     path : str
-        Path to the checkpoint directory.
+        Checkpoint directory.
     model_config : dict
-        Configuration dictionary for the model.
+        Full model configuration (shared + per-group).
     """
     ckpt_dir = os.path.abspath(path)
     ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
 
-    # Split the model into GraphDef (structure) and State (parameters + buffers)
-    _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
-
-    # Display for debugging (optional)
-    # nnx.display(state)
-
-    # Initialize the checkpointer
     checkpointer = ocp.StandardCheckpointer()
 
-    # Save State (parameters & non-trainable variables)
-    checkpointer.save(ckpt_dir / 'state', state)
+    for g, model in enumerate(models_per_group):
+        # Split model into graph-independent state
+        _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
+        checkpointer.save(ckpt_dir / f"state_group_{g}", state)
 
-    # Save model configuration for later loading
-    with open(ckpt_dir / 'config.json', 'w') as f:
-        json.dump(model_config, f)
+    # Save configuration
+    with open(ckpt_dir / "config.json", "w") as f:
+        json.dump(model_config, f, indent=2)
