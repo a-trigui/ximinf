@@ -317,6 +317,8 @@ def train_loop(model,
                metrics_history,
                M,
                N,
+               cpu,
+               gpu,
                plot_flag=False):
     """
     Train loop with early stopping and optional plotting.
@@ -343,8 +345,11 @@ def train_loop(model,
         
         for i in range(0, len(train_data), batch_size):
             # Get the current batch of data and labels
-            batch_data = train_data[i:i+batch_size]
-            batch_labels = train_labels[i:i+batch_size]
+            # batch_data = train_data[i:i+batch_size]
+            # batch_labels = train_labels[i:i+batch_size]
+
+            batch_data = jax.device_put(train_data[i:i+batch_size], gpu)
+            batch_labels = jax.device_put(train_labels[i:i+batch_size], gpu)
             
             # Perform a training step
             loss, _ = loss_fn(model, (batch_data, batch_labels))
