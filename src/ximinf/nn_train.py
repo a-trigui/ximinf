@@ -319,6 +319,8 @@ def train_loop(model,
                N,
                cpu,
                gpu,
+               group_id,
+               group_params,
                plot_flag=False):
     """
     Train loop with early stopping and optional plotting.
@@ -332,12 +334,6 @@ def train_loop(model,
     model.train()
 
     for epoch in range(epochs):
-        # Shuffle the training data using JAX.
-        # key, subkey = jax.random.split(key)
-        # perm = jax.random.permutation(subkey, len(train_data))
-        # train_data = train_data[perm]
-        # train_labels = train_labels[perm]
-        # del perm
         
         epoch_train_loss = 0
         epoch_train_correct = 0
@@ -345,9 +341,6 @@ def train_loop(model,
         
         for i in range(0, len(train_data), batch_size):
             # Get the current batch of data and labels
-            # batch_data = train_data[i:i+batch_size]
-            # batch_labels = train_labels[i:i+batch_size]
-
             batch_data = jax.device_put(train_data[i:i+batch_size], gpu)
             batch_labels = jax.device_put(train_labels[i:i+batch_size], gpu)
             
@@ -387,15 +380,16 @@ def train_loop(model,
         metrics_history['test_accuracy'].append(epoch_test_correct / epoch_test_total)
         
         # Early Stopping Check
-        if current_test_loss < best_test_loss:
-            best_test_loss = current_test_loss  # Update best test loss
-            strikes = 0
-        elif current_train_loss >= best_train_loss:
-            strikes = 0
-        elif current_test_loss > best_test_loss and current_train_loss < best_train_loss:
-            strikes += 1
-        elif current_train_loss < best_train_loss:
-            best_train_loss = current_train_loss # Update best train loss
+        if epoch>100:
+            if current_test_loss < best_test_loss:
+                best_test_loss = current_test_loss  # Update best test loss
+                strikes = 0
+            elif current_train_loss >= best_train_loss:
+                strikes = 0
+            elif current_test_loss > best_test_loss and current_train_loss < best_train_loss:
+                strikes += 1
+            elif current_train_loss < best_train_loss:
+                best_train_loss = current_train_loss # Update best train loss
 
         if strikes >= patience:
             print(f"\n Early stopping at epoch {epoch+1} due to {patience} consecutive increases in loss gap \n")
@@ -404,6 +398,8 @@ def train_loop(model,
         # Plotting (optional)
         if plot_flag and epoch % 1 == 0:
             clear_output(wait=True)
+
+            print(f"=== Training model for group {group_id}: {group_params} ===")
 
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
@@ -423,39 +419,6 @@ def train_loop(model,
             plt.show()
 
     return model, metrics_history, key
-
-
-# def save_nn(model, path, model_config):
-#     """
-#     Save a neural network model to a checkpoint.
-
-#     Parameters
-#     ----------
-#     model : nnx.Module
-#         The model to save.
-#     path : str
-#         Path to the checkpoint directory.
-#     model_config : dict
-#         Configuration dictionary for the model.
-#     """
-#     ckpt_dir = os.path.abspath(path)
-#     ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
-
-#     # Split the model into GraphDef (structure) and State (parameters + buffers)
-#     _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
-
-#     # Display for debugging (optional)
-#     # nnx.display(state)
-
-#     # Initialize the checkpointer
-#     checkpointer = ocp.StandardCheckpointer()
-
-#     # Save State (parameters & non-trainable variables)
-#     checkpointer.save(ckpt_dir / 'state', state)
-
-#     # Save model configuration for later loading
-#     with open(ckpt_dir / 'config.json', 'w') as f:
-#         json.dump(model_config, f)
 
 def save_autoregressive_nn(models_per_group, path, model_config):
     """
