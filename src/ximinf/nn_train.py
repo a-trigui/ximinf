@@ -380,16 +380,15 @@ def train_loop(model,
         metrics_history['test_accuracy'].append(epoch_test_correct / epoch_test_total)
         
         # Early Stopping Check
-        if epoch>100:
-            if current_test_loss < best_test_loss:
-                best_test_loss = current_test_loss  # Update best test loss
-                strikes = 0
-            elif current_train_loss >= best_train_loss:
-                strikes = 0
-            elif current_test_loss > best_test_loss and current_train_loss < best_train_loss:
-                strikes += 1
-            elif current_train_loss < best_train_loss:
-                best_train_loss = current_train_loss # Update best train loss
+        if current_test_loss < best_test_loss:
+            best_test_loss = current_test_loss  # Update best test loss
+            strikes = 0
+        elif current_train_loss >= best_train_loss:
+            strikes = 0
+        elif current_test_loss > best_test_loss and current_train_loss < best_train_loss:
+            strikes += 1
+        elif current_train_loss < best_train_loss:
+            best_train_loss = current_train_loss # Update best train loss
 
         if strikes >= patience:
             print(f"\n Early stopping at epoch {epoch+1} due to {patience} consecutive increases in loss gap \n")
