@@ -329,6 +329,8 @@ def train_loop(model,
     # Initialise stopping criteria
     best_train_loss = jnp.inf
     best_test_loss = jnp.inf
+    best_train_accuracy = 0.0
+    best_test_accuracy = 0.0
     strikes = 0
 
     model.train()
@@ -336,8 +338,7 @@ def train_loop(model,
     for epoch in range(epochs):
         
         epoch_train_loss = 0
-        epoch_train_correct = 0
-        epoch_train_total = 0
+        epoch_train_accuracy = 0
         
         for i in range(0, len(train_data), batch_size):
             # Get the current batch of data and labels
@@ -349,19 +350,18 @@ def train_loop(model,
             accuracy = accuracy_fn(model, (batch_data, batch_labels))
             epoch_train_loss += loss
             # Multiply batch accuracy by batch size to get number of correct predictions
-            epoch_train_correct += accuracy * len(batch_data)
-            epoch_train_total += len(batch_data)
+            epoch_train_accuracy += accuracy * len(batch_data)
             train_step(model, optimizer, (batch_data, batch_labels))
         
         # Log the training metrics.
         current_train_loss = epoch_train_loss / (len(train_data) / batch_size)
+        current_train_accuracy = epoch_train_accuracy / len(train_data)
         metrics_history['train_loss'].append(current_train_loss)
         # Compute overall epoch accuracy
-        metrics_history['train_accuracy'].append(epoch_train_correct / epoch_train_total)
+        metrics_history['train_accuracy'].append(current_train_accuracy)
 
         epoch_test_loss = 0
-        epoch_test_correct = 0
-        epoch_test_total = 0
+        epoch_test_accuracy = 0
 
         # Compute the metrics on the test set using the same batching as training
         for i in range(0, len(test_data), batch_size):
@@ -371,17 +371,20 @@ def train_loop(model,
             loss, _ = loss_fn(model, (batch_data, batch_labels))
             accuracy = accuracy_fn(model, (batch_data, batch_labels))
             epoch_test_loss += loss
-            epoch_test_correct += accuracy * len(batch_data)
-            epoch_test_total += len(batch_data)
+            epoch_test_accuracy += accuracy * len(batch_data)
 
         # Log the test metrics.
         current_test_loss = epoch_test_loss / (len(test_data) / batch_size)
+        current_test_accuracy = epoch_test_accuracy / len(test_data)
         metrics_history['test_loss'].append(current_test_loss)
-        metrics_history['test_accuracy'].append(epoch_test_correct / epoch_test_total)
+        metrics_history['test_accuracy'].append(current_test_accuracy)
         
         # Early Stopping Check
         if current_test_loss < best_test_loss:
             best_test_loss = current_test_loss  # Update best test loss
+            strikes = 0
+        elif current_test_accuracy > best_test_accuracy:
+            best_test_accuracy = current_test_accuracy  # Update best test accuracy
             strikes = 0
         elif current_train_loss >= best_train_loss:
             strikes = 0
@@ -416,6 +419,9 @@ def train_loop(model,
             ax2.legend()
 
             plt.show()
+
+        if epoch == epochs-1:
+            print(f"\n Reached maximum epochs: {epochs} \n")
 
     return model, metrics_history, key
 
