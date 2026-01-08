@@ -205,7 +205,7 @@ def l2_loss(model, alpha):
     return alpha * sum((param ** 2).sum() for param in params)
 
 @nnx.jit
-def loss_fn(model, batch, l2_reg=1e-7):
+def loss_fn(model, batch, l2_reg=1e-5):
     """
     Compute the total loss, which is the sum of the data loss and L2 regularization.
 
