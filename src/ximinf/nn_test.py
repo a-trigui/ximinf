@@ -97,7 +97,7 @@ def inference_loop(rng_key, kernel, initial_state, num_samples):
     _, states = jax.lax.scan(one_step, initial_state, keys)
     return states
 
-def log_prob_fn_groups(theta, models_per_group, x, bounds, param_groups, global_param_names):
+def log_prob_fn_groups(theta, models_per_group, data, bounds, param_groups, global_param_names):
     """
     Compute the sum of log-likelihoods for all groups given full theta.
 
@@ -123,9 +123,7 @@ def log_prob_fn_groups(theta, models_per_group, x, bounds, param_groups, global_
     """
     log_lik_sum = 0.0
 
-    # Use everything except the last n_params entries as data
-    data_part = x[:-len(theta)].reshape(1, -1)   # 2D
-    # If mask is required, you can extract it similarly here
+    data = data.reshape(1, -1)
 
     for g, group in enumerate(param_groups):
         # Determine visible parameters for this group
@@ -142,7 +140,7 @@ def log_prob_fn_groups(theta, models_per_group, x, bounds, param_groups, global_
         theta_visible = theta[visible_idx].reshape(1, -1)  # make 2D
 
         # Concatenate data with visible parameters
-        input_g = jnp.concatenate([data_part, theta_visible], axis=-1)
+        input_g = jnp.concatenate([data, theta_visible], axis=-1)
 
         # Forward pass through the model
         logits = models_per_group[g](input_g)
@@ -151,8 +149,6 @@ def log_prob_fn_groups(theta, models_per_group, x, bounds, param_groups, global_
         log_lik_sum += jnp.log(p) - jnp.log1p(-p)
 
     return jnp.squeeze(log_lik_sum) + log_prior(theta, bounds)
-
-
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))

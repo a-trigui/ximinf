@@ -383,9 +383,9 @@ def train_loop(model,
         if current_test_loss < best_test_loss:
             best_test_loss = current_test_loss  # Update best test loss
             strikes = 0
-        elif current_test_accuracy > best_test_accuracy:
-            best_test_accuracy = current_test_accuracy  # Update best test accuracy
-            strikes = 0
+        # elif current_test_accuracy > best_test_accuracy:
+        #     best_test_accuracy = current_test_accuracy  # Update best test accuracy
+        #     strikes = 0
         elif current_train_loss >= best_train_loss:
             strikes = 0
         elif current_test_loss > best_test_loss and current_train_loss < best_train_loss:
