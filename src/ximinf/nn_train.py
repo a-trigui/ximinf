@@ -304,6 +304,100 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
+class Phi(nnx.Module):
+    """
+    Neural network module for the Phi network in a Deep Set architecture.
+    """
+    def __init__(self, Nsize, n_cols, *, rngs):
+        self.linear1 = nnx.Linear(n_cols, Nsize, rngs=rngs) #+n_params
+        self.linear2 = nnx.Linear(Nsize, Nsize, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize, Nsize, rngs=rngs)
+
+    def __call__(self, data):
+        h = data
+        
+        h = nnx.relu(self.linear1(h))
+        h = nnx.relu(self.linear2(h))
+        h = nnx.relu(self.linear3(h))
+        return h
+
+
+class Rho(nnx.Module):
+    """
+    Neural network module for the Rho network in a Deep Set architecture
+    with separate LayerNorm for pooled features and theta.
+    """
+    def __init__(self, Nsize_p, Nsize_r, N_size_params, *, rngs):
+        self.linear1 = nnx.Linear(Nsize_p + N_size_params, Nsize_r, rngs=rngs) #
+        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, 1, rngs=rngs)
+
+    def __call__(self, dropout, pooled_features, params):
+        # Concatenate pooled features and embedding
+        x = jnp.concatenate([pooled_features, params], axis=-1)
+
+        x = nnx.relu(self.linear1(x))
+        x = dropout(x)
+
+        x = nnx.relu(self.linear2(x)) #leaky_relu
+        x = dropout(x)
+
+        return self.linear3(x)
+
+
+class DeepSetClassifier(nnx.Module):
+    """
+    Deep Set Classifier model combining Phi and Rho networks.
+    """
+    def __init__(self, dropout_rate, Nsize_p, Nsize_r,
+                 n_cols, n_params, *, rngs):
+
+        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.n_cols   = n_cols
+        self.n_params = n_params
+
+        self.phi = Phi(Nsize_p, n_cols, rngs=rngs)
+        self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
+
+    def __call__(self, input_data):
+        # ----------------------------------------------------
+        # Accept both shape (N, D) and (D,) without failing
+        # ----------------------------------------------------
+        if input_data.ndim == 1:
+            input_data = input_data[None, :]
+
+        N = input_data.shape[0]
+        input_dim = input_data.shape[1]
+
+        # Compute M first from input size
+        # Total input columns = M*n_cols + n_params + M (mask)
+        M = (input_dim - self.n_params) // (self.n_cols + 1)
+
+        # Reshape data columns
+        data = input_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
+
+        # Slice mask (last M columns)
+        mask = input_data[:, -M-self.n_params:-self.n_params]         # shape (N, M)
+
+        # Parameters
+        theta = input_data[:, -self.n_params:]  # shape (N, n_params)
+
+        # Apply Phi
+        h = self.phi(data)
+
+        # Apply mask
+        h_masked = h * mask[..., None]
+
+        # Pool (masked average)
+        mask_sum = jnp.sum(mask, axis=1, keepdims=True)
+        mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
+        pooled = jnp.sum(h_masked, axis=1) / mask_sum
+
+        # pooled_N = jnp.concatenate([pooled, mask_sum], axis=-1)
+
+        # Apply Rho
+        return self.rho(self.dropout, pooled, theta)
+
 def train_loop(model,
                optimizer,
                train_data,

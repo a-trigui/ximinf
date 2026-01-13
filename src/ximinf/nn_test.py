@@ -24,26 +24,42 @@ def distance(theta1, theta2):
     diff = theta1 - theta2
     return jnp.linalg.norm(diff)
 
-def log_prior(theta, bounds):
+# def log_prior(theta, bounds):
+#     """
+#     Compute the log-prior probability for the parameter `theta`, 
+#     assuming uniform prior within given bounds.
+
+#     Parameters
+#     ----------
+#     theta : array-like
+#         The parameter values for which the prior is to be calculated.
+#     bounds : jnp.ndarray, optional
+#         The bounds on each parameter (default is the global `BOUNDS`).
+
+#     Returns
+#     -------
+#     float
+#         The log-prior of `theta`, or negative infinity if `theta` is out of bounds.
+#     """
+
+#     in_bounds = jnp.all((theta >= bounds[:, 0]) & (theta <= bounds[:, 1]))
+#     return jnp.where(in_bounds, 0.0, -jnp.inf)
+
+def log_group_prior(theta, bounds, group_indices):
     """
-    Compute the log-prior probability for the parameter `theta`, 
-    assuming uniform prior within given bounds.
-
-    Parameters
-    ----------
-    theta : array-like
-        The parameter values for which the prior is to be calculated.
-    bounds : jnp.ndarray, optional
-        The bounds on each parameter (default is the global `BOUNDS`).
-
-    Returns
-    -------
-    float
-        The log-prior of `theta`, or negative infinity if `theta` is out of bounds.
+    Log prior for a single parameter group.
+    Uniform within bounds, -inf otherwise.
     """
+    theta_g = theta[group_indices]
+    bounds_g = bounds[group_indices]
 
-    in_bounds = jnp.all((theta >= bounds[:, 0]) & (theta <= bounds[:, 1]))
+    in_bounds = jnp.all(
+        (theta_g >= bounds_g[:, 0]) &
+        (theta_g <= bounds_g[:, 1])
+    )
+
     return jnp.where(in_bounds, 0.0, -jnp.inf)
+
 
 
 def sample_reference_point(rng_key, bounds):
@@ -97,58 +113,48 @@ def inference_loop(rng_key, kernel, initial_state, num_samples):
     _, states = jax.lax.scan(one_step, initial_state, keys)
     return states
 
-def log_prob_fn_groups(theta, models_per_group, data, bounds, param_groups, global_param_names):
-    """
-    Compute the sum of log-likelihoods for all groups given full theta.
+def log_prob_fn_groups(theta, models_per_group, data, bounds,
+                       param_groups, global_param_names):
 
-    Parameters
-    ----------
-    theta : jnp.ndarray, shape (n_params,)
-        Full parameter vector.
-    models_per_group : list
-        List of DeepSetClassifier models, one per group.
-    x : jnp.ndarray
-        Input data sample (shape: (data_features + ... + n_params))
-    bounds : jnp.ndarray
-        Parameter bounds.
-    param_groups : list
-        List of parameter groups.
-    param_names : list
-        List of all parameter names in order.
-
-    Returns
-    -------
-    float
-        Sum of log-likelihoods over all groups.
-    """
-    log_lik_sum = 0.0
+    log_r_sum = 0.0
+    log_p_group_sum = 0.0
 
     data = data.reshape(1, -1)
 
     for g, group in enumerate(param_groups):
-        # Determine visible parameters for this group
+
+        # --- parameter bookkeeping (unchanged) ---
         prev_groups = [
             p
             for i in range(g)
-            for p in (param_groups[i] if isinstance(param_groups[i], list) else [param_groups[i]])
+            for p in (param_groups[i] if isinstance(param_groups[i], list)
+                      else [param_groups[i]])
         ]
+
         group_list = [group] if isinstance(group, str) else group
         visible_param_names = prev_groups + group_list
 
-        # Get visible theta values
-        visible_idx = jnp.array([global_param_names.index(name) for name in visible_param_names])
-        theta_visible = theta[visible_idx].reshape(1, -1)  # make 2D
+        visible_idx = jnp.array(
+            [global_param_names.index(name) for name in visible_param_names]
+        )
 
-        # Concatenate data with visible parameters
+        theta_visible = theta[visible_idx].reshape(1, -1)
         input_g = jnp.concatenate([data, theta_visible], axis=-1)
 
-        # Forward pass through the model
+        # --- ratio estimator ---
         logits = models_per_group[g](input_g)
         p = jax.nn.sigmoid(logits)
+        log_r_sum += jnp.log(p) - jnp.log1p(-p)
 
-        log_lik_sum += jnp.log(p) - jnp.log1p(-p)
+        # --- marginal prior for this group ---
+        group_idx = jnp.array(
+            [global_param_names.index(name) for name in group_list]
+        )
 
-    return jnp.squeeze(log_lik_sum) + log_prior(theta, bounds)
+        log_p_group_sum += log_group_prior(theta, bounds, group_idx)
+
+    return jnp.squeeze(log_r_sum + log_p_group_sum)
+
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))

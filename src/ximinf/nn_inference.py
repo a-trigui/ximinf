@@ -114,7 +114,6 @@ def load_autoregressive_nn(path):
                 dropout_rate=0.0,
                 Nsize_p=shared["Nsize_p"],
                 Nsize_r=shared["Nsize_r"],
-                N_size_embed=shared["N_size_embed"],
                 n_cols=shared["n_cols"],
                 n_params=n_params_visible,
                 rngs=nnx.Rngs(0),
