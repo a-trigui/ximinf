@@ -72,7 +72,7 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         "alpha": 0.0,
         "beta": 0.0,
         "mabs": -19.3,
-        # "gamma": 0.0,
+        "gamma": 0.0,
         "sigma_int": 0.0,  # default intrinsic scatter
     }
 
@@ -83,33 +83,37 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     alpha_ = float(params["alpha"])
     beta_  = float(params["beta"])
     mabs_  = float(params["mabs"])
-    # gamma_ = float(params["gamma"])
+    gamma_ = float(params["gamma"])
     sigma_int_ = float(params["sigma_int"])
 
-    # brokenalpha_model = skysurvey_sniapop.brokenalpha_model
+    brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
     # Generate SNe sample
     snia = skysurvey.SNeIa.from_draw(
         size=M,
         zmax=z_max,
-        # model=brokenalpha_model,
+        model=brokenalpha_model,
         magabs={
+            "x1": "@x1",
+            "c": "@c",
             "mabs": mabs_,
             "sigmaint": sigma_int_,
-            "alpha": alpha_,
+            "alpha_low": alpha_,
+            "alpha_high": alpha_,
             "beta": beta_,
+            "gamma": gamma_
         }
     )
 
     # Apply noise
-    # errormodel = sim.noise_model
+    errormodel = sim.noise_model
+    errormodel.pop("localcolor", None)
     # errormodel["localcolor"]["kwargs"]["a"] = 2
     # errormodel["localcolor"]["kwargs"]["loc"] = 0.005
     # errormodel["localcolor"]["kwargs"]["scale"] = 0.05
-    # noisy_snia = snia.apply_gaussian_noise(errormodel)
+    noisy_snia = snia.apply_gaussian_noise(errormodel)
 
-    # df = noisy_snia.data
-    df = snia.data
+    df = noisy_snia.data
 
     # Collect requested columns as lists
     data_dict = {col: list(df[col]) for col in cols if col in df}
