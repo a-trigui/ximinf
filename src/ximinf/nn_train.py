@@ -182,6 +182,46 @@ def train_test_split_jax(X, y, test_size=0.3, shuffle=False, key=None):
 
     return X[:N_train], X[N_train:], y[:N_train], y[N_train:]
 
+def train_test_split_indices_jax(N, test_size=0.3, shuffle=False, key=None, fixed_test_idx=None):
+    """
+    Generate train/test indices in JAX, optionally using a fixed test set.
+
+    Parameters
+    ----------
+    N : int
+        Total number of samples.
+    test_size : float
+        Fraction of the dataset to use as test data.
+    shuffle : bool
+        Whether to shuffle before splitting (ignored if fixed_test_idx is provided).
+    key : jax.random.PRNGKey
+        Random key used for shuffling (required if shuffle=True and fixed_test_idx is None).
+    fixed_test_idx : jax.numpy.ndarray, optional
+        Predefined indices to use as test set (persistent across rounds).
+
+    Returns
+    -------
+    train_idx : jax.numpy.ndarray
+        Indices for the training set.
+    test_idx : jax.numpy.ndarray
+        Indices for the test set.
+    """
+
+    N_test = int(jnp.floor(test_size * N))
+
+    if fixed_test_idx is None:
+        if shuffle:
+            perm = jax.random.permutation(key, N)
+        else:
+            perm = jnp.arange(N)
+        test_idx = perm[:N_test]
+    else:
+        test_idx = fixed_test_idx
+
+    train_idx = jnp.setdiff1d(jnp.arange(N), test_idx)
+    return train_idx, test_idx
+
+
 @nnx.jit
 def l2_loss(model, alpha):
     """
