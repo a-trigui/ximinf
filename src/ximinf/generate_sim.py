@@ -69,7 +69,8 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
 
     # Define default parameters including sigma_int
     default_params = {
-        "alpha": 0.0,
+        "alpha_low": 0.0,
+        "alpha_high": 0.0,
         "beta": 0.0,
         "mabs": -19.3,
         "gamma": 0.0,
@@ -79,8 +80,14 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     # Merge defaults with provided params (params_dict takes priority)
     params = {**default_params, **params_dict}
 
+    # If a single alpha is provided, enforce alpha_low = alpha_high = alpha
+    if "alpha" in params:
+        params["alpha_low"] = params["alpha"]
+        params["alpha_high"] = params["alpha"]
+
     # Ensure all are floats
-    alpha_ = float(params["alpha"])
+    alpha_low = float(params["alpha_low"])
+    alpha_high = float(params["alpha_low"])
     beta_  = float(params["beta"])
     mabs_  = float(params["mabs"])
     gamma_ = float(params["gamma"])
@@ -98,8 +105,8 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
             "c": "@c",
             "mabs": mabs_,
             "sigmaint": sigma_int_,
-            "alpha_low": alpha_,
-            "alpha_high": alpha_,
+            "alpha_low": alpha_low,
+            "alpha_high": alpha_high,
             "beta": beta_,
             "gamma": gamma_
         }
@@ -107,10 +114,11 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
 
     # Apply noise
     errormodel = sim.noise_model
-    errormodel.pop("localcolor", None)
-    # errormodel["localcolor"]["kwargs"]["a"] = 2
-    # errormodel["localcolor"]["kwargs"]["loc"] = 0.005
-    # errormodel["localcolor"]["kwargs"]["scale"] = 0.05
+    # errormodel.pop("localcolor", None)
+    # errormodel.pop("c", None)
+    errormodel["localcolor"]["kwargs"]["a"] = 2
+    errormodel["localcolor"]["kwargs"]["loc"] = 0.005
+    errormodel["localcolor"]["kwargs"]["scale"] = 0.05
     noisy_snia = snia.apply_gaussian_noise(errormodel)
 
     df = noisy_snia.data
