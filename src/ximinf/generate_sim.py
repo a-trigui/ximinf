@@ -86,8 +86,8 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         params["alpha_high"] = params["alpha"]
 
     # Ensure all are floats
-    alpha_low = float(params["alpha_low"])
-    alpha_high = float(params["alpha_low"])
+    alpha_low_ = float(params["alpha_low"])
+    alpha_high_ = float(params["alpha_high"])
     beta_  = float(params["beta"])
     mabs_  = float(params["mabs"])
     gamma_ = float(params["gamma"])
@@ -105,8 +105,8 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
             "c": "@c",
             "mabs": mabs_,
             "sigmaint": sigma_int_,
-            "alpha_low": alpha_low,
-            "alpha_high": alpha_high,
+            "alpha_low": alpha_low_,
+            "alpha_high": alpha_high_,
             "beta": beta_,
             "gamma": gamma_
         }
