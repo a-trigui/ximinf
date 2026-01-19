@@ -75,6 +75,7 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         "mabs": -19.3,
         "gamma": 0.0,
         "sigma_int": 0.0,  # default intrinsic scatter
+        "x1_ref": 0.0
     }
 
     # Merge defaults with provided params (params_dict takes priority)
@@ -92,6 +93,7 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     mabs_  = float(params["mabs"])
     gamma_ = float(params["gamma"])
     sigma_int_ = float(params["sigma_int"])
+    x1_ref_ = float(params["x1_ref"])
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
@@ -108,7 +110,8 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
             "alpha_low": alpha_low_,
             "alpha_high": alpha_high_,
             "beta": beta_,
-            "gamma": gamma_
+            "gamma": gamma_,
+            "x1ref": x1_ref_
         }
     )
 
