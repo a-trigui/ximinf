@@ -527,9 +527,16 @@ def train_loop(model,
         elif current_train_loss < best_train_loss:
             best_train_loss = current_train_loss # Update best train loss
 
-        if strikes >= patience:
-            print(f"\n Early stopping at epoch {epoch+1} due to {patience} consecutive increases in loss gap \n")
-            break
+        # -------------------------------------------------
+        # Gate early stopping on minimum accuracy
+        # -------------------------------------------------
+        if current_test_accuracy >= 0.7:
+            if strikes >= patience:
+                print(
+                    f"\n Early stopping at epoch {epoch+1} "
+                    f"(accuracy >= 0.7 and {patience} strikes) \n"
+                )
+                break
 
         # Plotting (optional)
         if plot_flag and epoch % 1 == 0:
