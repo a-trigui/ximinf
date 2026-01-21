@@ -345,21 +345,30 @@ def pred_step(model, x_batch):
     return logits
 
 class Phi(nnx.Module):
-    """
-    Neural network module for the Phi network in a Deep Set architecture.
-    """
-    def __init__(self, Nsize, n_cols, *, rngs):
-        self.linear1 = nnx.Linear(n_cols, Nsize, rngs=rngs) #+n_params
-        self.linear2 = nnx.Linear(Nsize, Nsize, rngs=rngs)
-        self.linear3 = nnx.Linear(Nsize, Nsize, rngs=rngs)
+    def __init__(self, Nsize, n_cols, n_params, *, rngs):
+        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, rngs=rngs)
+        self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+        self.linear5 = nnx.Linear(2*Nsize, Nsize, rngs=rngs)
+        # self.ln5     = nnx.LayerNorm(Nsize, rngs=rngs)
 
-    def __call__(self, data):
-        h = data
-        
-        h = nnx.relu(self.linear1(h))
-        h = nnx.relu(self.linear2(h))
-        h = nnx.relu(self.linear3(h))
+    def __call__(self, data, params):
+        h = jnp.concatenate([data, params], axis=-1)
+
+        h = self.linear1(h)
+        # h = self.ln1(h)
+        h = nnx.leaky_relu(h)
+
+        h = self.linear2(h)
+        # h = self.ln2(h)
+        h = nnx.leaky_relu(h)
+
+        h = self.linear5(h)
+        # h = self.ln5(h)
+
         return h
+
 
 
 class Rho(nnx.Module):
@@ -368,21 +377,34 @@ class Rho(nnx.Module):
     with separate LayerNorm for pooled features and theta.
     """
     def __init__(self, Nsize_p, Nsize_r, N_size_params, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + N_size_params, Nsize_r, rngs=rngs) #
+        self.linear1 = nnx.Linear(Nsize_p + N_size_params, Nsize_r, rngs=rngs)
+        self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
-        self.linear3 = nnx.Linear(Nsize_r, 1, rngs=rngs)
+        self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        # self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        self.linear5 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
         # Concatenate pooled features and embedding
         x = jnp.concatenate([pooled_features, params], axis=-1)
 
-        x = nnx.relu(self.linear1(x))
+        x = self.linear1(x)
+        # x = self.ln1(x)
+        x = nnx.leaky_relu(x)
         x = dropout(x)
 
-        x = nnx.relu(self.linear2(x)) #leaky_relu
+        x = self.linear2(x)
+        # x = self.ln2(x)
+        x = nnx.leaky_relu(x)
         x = dropout(x)
 
-        return self.linear3(x)
+        # x = self.linear3(x)
+        # # x = self.ln3(x)
+        # x = nnx.leaky_relu(x)
+        # x = dropout(x)
+
+        return self.linear5(x)
 
 
 class DeepSetClassifier(nnx.Module):
@@ -396,7 +418,7 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols   = n_cols
         self.n_params = n_params
 
-        self.phi = Phi(Nsize_p, n_cols, rngs=rngs)
+        self.phi = Phi(Nsize_p, n_cols, n_params, rngs=rngs)
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
     def __call__(self, input_data):
@@ -422,8 +444,10 @@ class DeepSetClassifier(nnx.Module):
         # Parameters
         theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
+        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+
         # Apply Phi
-        h = self.phi(data)
+        h = self.phi(data, theta_fill)
 
         # Apply mask
         h_masked = h * mask[..., None]

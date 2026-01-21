@@ -75,7 +75,7 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         "mabs": -19.3,
         "gamma": 0.0,
         "sigma_int": 0.0,  # default intrinsic scatter
-        "x1_ref": 0.0
+        "x1_ref": -0.5
     }
 
     # Merge defaults with provided params (params_dict takes priority)
