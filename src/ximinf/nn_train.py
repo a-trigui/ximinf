@@ -347,25 +347,23 @@ def pred_step(model, x_batch):
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
         self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, rngs=rngs)
-        self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
-        self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear5 = nnx.Linear(2*Nsize, Nsize, rngs=rngs)
-        # self.ln5     = nnx.LayerNorm(Nsize, rngs=rngs)
+        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.linear4 = nnx.Linear(2*Nsize, Nsize, rngs=rngs)
 
     def __call__(self, data, params):
         h = jnp.concatenate([data, params], axis=-1)
 
         h = self.linear1(h)
-        # h = self.ln1(h)
         h = nnx.leaky_relu(h)
 
         h = self.linear2(h)
-        # h = self.ln2(h)
         h = nnx.leaky_relu(h)
 
-        h = self.linear5(h)
-        # h = self.ln5(h)
+        h = self.linear3(h)
+        h = nnx.leaky_relu(h)
+
+        h = self.linear4(h)
 
         return h
 
@@ -381,30 +379,30 @@ class Rho(nnx.Module):
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
-        # self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear5 = nnx.Linear(Nsize_r, 1, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        self.linear4 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
         # Concatenate pooled features and embedding
         x = jnp.concatenate([pooled_features, params], axis=-1)
 
         x = self.linear1(x)
-        # x = self.ln1(x)
+        x = self.ln1(x)
         x = nnx.leaky_relu(x)
         x = dropout(x)
 
         x = self.linear2(x)
-        # x = self.ln2(x)
+        x = self.ln2(x)
         x = nnx.leaky_relu(x)
         x = dropout(x)
 
-        # x = self.linear3(x)
-        # # x = self.ln3(x)
-        # x = nnx.leaky_relu(x)
-        # x = dropout(x)
+        x = self.linear3(x)
+        x = self.ln3(x)
+        x = nnx.leaky_relu(x)
+        x = dropout(x)
 
-        return self.linear5(x)
+        return self.linear4(x)
 
 
 class DeepSetClassifier(nnx.Module):

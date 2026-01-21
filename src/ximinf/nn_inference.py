@@ -110,7 +110,7 @@ def load_autoregressive_nn(path):
 
         # Recreate abstract model (shape-only)
         abstract_model = nnx.eval_shape(
-            lambda: nntr.DeepSetClassifier( # It should not work, there is no class DeepSetClassifier defined in nntr, check how this should be properly done
+            lambda: nntr.DeepSetClassifier(
                 dropout_rate=0.0,
                 Nsize_p=shared["Nsize_p"],
                 Nsize_r=shared["Nsize_r"],
