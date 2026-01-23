@@ -3,23 +3,26 @@ import skysurvey
 import numpy as np
 from pyDOE import lhs  # LHS sampler
 
-def scan_params(ranges, N, dtype=np.float32):
+def scan_params(ranges, N, n_realisation=1, dtype=np.float32):
     """
-    Generate sampled parameter sets using Latin Hypercube Sampling (LHS).
+    Generate sampled parameter sets using Latin Hypercube Sampling (LHS),
+    with optional duplication for multiple realizations per parameter tuple.
 
     Parameters
     ----------
     ranges : dict
         Mapping parameter names to (min, max) tuples.
     N : int
-        Number of samples.
+        Number of distinct parameter tuples.
+    n_realisation : int, optional
+        Number of realizations per parameter tuple.
     dtype : data-type, optional
         Numeric type for the sampled arrays (default is np.float32).
 
     Returns
     -------
     params_dict : dict
-        Dictionary of parameter arrays of shape (N,).
+        Dictionary of parameter arrays of shape (N * n_realisation,).
     """
     param_names = list(ranges.keys())
     n_params = len(param_names)
@@ -27,13 +30,16 @@ def scan_params(ranges, N, dtype=np.float32):
     # LHS unit samples in [0,1]
     unit_samples = lhs(n_params, samples=N)
 
-    # Scale unit samples to parameter ranges
     params_dict = {}
     for i, p in enumerate(param_names):
         low, high = ranges[p]
-        params_dict[p] = (unit_samples[:, i] * (high - low) + low).astype(dtype)
+        values = unit_samples[:, i] * (high - low) + low
+
+        # Duplicate each parameter tuple n_realisation times
+        params_dict[p] = np.repeat(values, n_realisation).astype(dtype)
 
     return params_dict
+
     
 def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     """
