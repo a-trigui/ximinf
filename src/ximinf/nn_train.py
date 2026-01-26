@@ -1,6 +1,7 @@
 # Standard and scientific
 import os
 import json
+import pickle
 import numpy as np  # Numerical Python
 import scipy as sp
 import matplotlib.pyplot as plt
@@ -64,6 +65,27 @@ def rm_cosmo(z, magobs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
 
     return mu_planck18, magobs_corr
 
+def normalize(data_dict, stats_dict):
+    normed = {}
+    for k, v in data_dict.items():
+        if k in stats_dict:
+            mu = stats_dict[k]['mu']
+            sigma = stats_dict[k]['sigma']
+            normed[k] = (v - mu) / sigma
+        else:
+            normed[k] = v  # leave untouched
+    return normed
+
+def unnormalize(normed_params, param_stats):
+    unnormed = {}
+    for k, v in normed_params.items():
+        if k in param_stats:
+            mu = param_stats[k]['mu']
+            sigma = param_stats[k]['sigma']
+            unnormed[k] = v * sigma + mu  # inverse of normalization
+        else:
+            unnormed[k] = v  # leave untouched
+    return unnormed
 
 def gaussian(x, mu, sigma):
     """
@@ -616,5 +638,5 @@ def save_autoregressive_nn(models_per_group, path, model_config):
         checkpointer.save(ckpt_dir / f"state_group_{g}", state)
 
     # Save configuration
-    with open(ckpt_dir / "config.json", "w") as f:
-        json.dump(model_config, f, indent=2)
+    with open(ckpt_dir / "config.pkl", "wb") as f:
+        pickle.dump(model_config, f)

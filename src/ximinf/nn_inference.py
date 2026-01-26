@@ -1,6 +1,7 @@
 # Standard
 import os
 import json
+import pickle
 
 # Jax
 from flax import nnx
@@ -96,8 +97,8 @@ def load_autoregressive_nn(path):
     if not config_path.exists():
         raise ValueError("Model config file not found.")
 
-    with open(config_path, "r") as f:
-        model_config = json.load(f)
+    with open(config_path, "rb") as f:
+        model_config = pickle.load(f)
 
     shared = model_config["shared"]
     group_configs = model_config["groups"]
