@@ -93,7 +93,7 @@ def load_autoregressive_nn(path):
     if not ckpt_dir.exists():
         raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist.")
 
-    config_path = ckpt_dir / "config.json"
+    config_path = ckpt_dir / "config.pkl"
     if not config_path.exists():
         raise ValueError("Model config file not found.")
 
