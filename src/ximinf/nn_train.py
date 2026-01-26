@@ -347,21 +347,27 @@ def pred_step(model, x_batch):
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
         self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, rngs=rngs)
+        self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, rngs=rngs)
 
     def __call__(self, data, params):
         h = jnp.concatenate([data, params], axis=-1)
 
         h = self.linear1(h)
-        h = nnx.leaky_relu(h)
+        h = self.ln1(h)
+        h = nnx.relu(h)
 
         h = self.linear2(h)
-        h = nnx.leaky_relu(h)
+        h = self.ln2(h)
+        h = nnx.relu(h)
 
         h = self.linear3(h)
-        h = nnx.leaky_relu(h)
+        h = self.ln3(h)
+        h = nnx.relu(h)
 
         h = self.linear4(h)
 
@@ -389,17 +395,17 @@ class Rho(nnx.Module):
 
         x = self.linear1(x)
         x = self.ln1(x)
-        x = nnx.leaky_relu(x)
+        x = nnx.relu(x)
         x = dropout(x)
 
         x = self.linear2(x)
         x = self.ln2(x)
-        x = nnx.leaky_relu(x)
+        x = nnx.relu(x)
         x = dropout(x)
 
         x = self.linear3(x)
         x = self.ln3(x)
-        x = nnx.leaky_relu(x)
+        x = nnx.relu(x)
         x = dropout(x)
 
         return self.linear4(x)
@@ -485,8 +491,6 @@ def train_loop(model,
     # Initialise stopping criteria
     best_train_loss = jnp.inf
     best_test_loss = jnp.inf
-    best_train_accuracy = 0.0
-    best_test_accuracy = 0.0
     strikes = 0
 
     model.train()
@@ -569,7 +573,7 @@ def train_loop(model,
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
             # Loss subplot
-            ax1.set_title(f'Loss for M:{M} and N:{N}')
+            ax1.set_title(f'Loss for M:{M} and N:{N} with patience:{patience}')
             for dataset in ('train', 'test'):
                 ax1.plot(metrics_history[f'{dataset}_loss'], label=f'{dataset}_loss')
             ax1.legend()
