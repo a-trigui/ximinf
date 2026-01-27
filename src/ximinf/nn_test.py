@@ -155,6 +155,33 @@ def log_prob_fn_groups(theta, models_per_group, data, bounds,
 
     return jnp.squeeze(log_r_sum + log_p_group_sum)
 
+# def log_prob_fn_groups_batch(theta, models_per_group, data, bounds,
+#                              param_groups, global_param_names):
+#     # vmap over the first axis (simulations)
+#     def single_sim_log_prob(data_i):
+#         log_r_sum = 0.0
+#         log_p_group_sum = 0.0
+#         for g, group in enumerate(param_groups):
+#             prev_groups = [
+#                 p
+#                 for k in range(g)
+#                 for p in (param_groups[k] if isinstance(param_groups[k], list) else [param_groups[k]])
+#             ]
+#             group_list = [group] if isinstance(group, str) else group
+#             visible_param_names = prev_groups + group_list
+#             visible_idx = jnp.array([global_param_names.index(name) for name in visible_param_names])
+#             theta_visible = theta[visible_idx].reshape(1, -1)
+#             input_g = jnp.concatenate([data_i[None, :], theta_visible], axis=-1)
+#             logits = models_per_group[g](input_g)
+#             p = jax.nn.sigmoid(logits)
+#             log_r_sum += jnp.log(p) - jnp.log1p(-p)
+#             group_idx = jnp.array([global_param_names.index(name) for name in group_list])
+#             log_p_group_sum += log_group_prior(theta, bounds, group_idx)
+#         return log_r_sum + log_p_group_sum
+
+#     # sum over all simulations
+#     return jnp.sum(jax.vmap(single_sim_log_prob)(data))
+
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))

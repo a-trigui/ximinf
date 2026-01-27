@@ -2,6 +2,8 @@
 import skysurvey
 import numpy as np
 from pyDOE import lhs  # LHS sampler
+import ztfidr.simulation as sim
+import skysurvey_sniapop
 
 def scan_params(ranges, N, n_realisation=1, dtype=np.float32):
     """
@@ -65,8 +67,6 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     data_dict : dict
         Dictionary of lists (one per column) containing the simulated data.
     """
-    import ztfidr.simulation as sim
-    import skysurvey_sniapop
 
     # Print progress
     if N is not None and i is not None:

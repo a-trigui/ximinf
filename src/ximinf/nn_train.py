@@ -1,6 +1,5 @@
 # Standard and scientific
 import os
-import json
 import pickle
 import numpy as np  # Numerical Python
 import scipy as sp
