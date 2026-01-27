@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import blackjax
 from functools import partial
-from tqdm.notebook import tqdm
 
 # ----------------------------
 # Utilities
@@ -45,37 +44,9 @@ def inference_loop(rng_key, initial_state, kernel, num_samples):
         return new_state, new_state.position
 
     keys = jax.random.split(rng_key, num_samples)
-    _, positions = jax.lax.scan(one_step, initial_state, keys)
-    return positions
+    _, states = jax.lax.scan(one_step, initial_state, keys)
+    return states
 
-
-# def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
-#     log_r_sum = 0.0
-#     log_p_sum = 0.0
-#     xi = xi.reshape(1, -1)
-#     for g in range(len(models_per_group)):
-#         v_idx = visible_indices[g]
-#         g_idx = group_indices[g]
-#         theta_visible = theta[v_idx].reshape(1, -1)
-#         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-#         logits = models_per_group[g](input_g)
-#         log_r_sum += logits.squeeze()
-#         log_p_sum += log_group_prior(theta, bounds, g_idx)
-#     return log_r_sum + log_p_sum
-
-# def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
-#     xi = xi.reshape(1, -1)
-    
-#     def log_prob_single_group(v_idx, g_idx, model):
-#         theta_visible = theta[v_idx].reshape(1, -1)
-#         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-#         log_r = model(input_g).squeeze()
-#         log_p = log_group_prior(theta, bounds, g_idx)
-#         return log_r + log_p
-
-#     # Vectorize over groups
-#     log_probs = jax.vmap(log_prob_single_group)(visible_indices, group_indices, models_per_group)
-#     return jnp.sum(log_probs)
 
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
     xi = xi.reshape(1, -1)
@@ -85,11 +56,22 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
     for v_idx, g_idx, model in zip(visible_indices, group_indices, models_per_group):
         theta_visible = theta[v_idx].reshape(1, -1)
         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-        log_r_sum += model(input_g).squeeze()
+        logits += model(input_g).squeeze()
+        p = jax.nn.sigmoid(logits)
+        log_r_sum += jnp.log(p) - jnp.log1p(-p)
         log_p_sum += log_group_prior(theta, bounds, g_idx)
 
     return log_r_sum + log_p_sum
 
+@partial(jax.jit, static_argnums=(0, 1, 2))
+def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
+    warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
+    rng_key, warmup_key, sample_key = jax.random.split(rng_key, 3)
+    (warmup_state, params), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
+    kernel = blackjax.nuts(log_prob, **params).step
+    rng_key, sample_key = jax.random.split(rng_key)
+    states = inference_loop(sample_key, kernel, warmup_state, n_samples)
+    return rng_key, states.position
 
 # ----------------------------
 # Per-sample posterior
@@ -98,7 +80,7 @@ def one_sample_step_groups(rng_key, xi, theta_star, bounds,
                            models_per_group, visible_indices, group_indices,
                            n_warmup, n_samples):
     # Split rng for reference and MCMC
-    rng_key, key_r0, key_mcmc, key_kernel = jax.random.split(rng_key, 4)
+    rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 4)
     
     # Reference point
     _, theta_r0 = sample_reference_point(key_r0, bounds)
@@ -107,14 +89,9 @@ def one_sample_step_groups(rng_key, xi, theta_star, bounds,
     def log_post(theta):
         return log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices)
     
-    # Run warmup and build kernel
-    warmup = blackjax.window_adaptation(blackjax.nuts, log_post)
-    (state, params), _ = warmup.run(key_kernel, theta_star, num_steps=n_warmup)
-    kernel = blackjax.nuts(log_post, **params).step
-    
-    # Sample posterior
-    posterior = inference_loop(key_mcmc, state, kernel, int(n_samples))
-    
+    # Sample from posterior
+    rng_key, posterior = sample_posterior(log_post, n_warmup, n_samples, theta_star, key_mcmc)
+
     # Compute ECP statistic
     d_star = distance(theta_star, theta_r0)
     d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
@@ -122,28 +99,6 @@ def one_sample_step_groups(rng_key, xi, theta_star, bounds,
     
     return f_val, posterior, rng_key
 
-# ----------------------------
-# Batched ECP computation
-# ----------------------------
-# def compute_ecp_tarp_groups(models_per_group, x_list, theta_star_list, alpha_list,
-#                             bounds, visible_indices, group_indices,
-#                             n_warmup, n_samples, rng_key):
-#     f_vals = []
-#     posteriors = []
-#     for i in range(x_list.shape[0]):
-#         print(f"Processing sample {i+1}/{x_list.shape[0]}")
-#         rng_key, subkey = jax.random.split(rng_key)
-#         f_val, posterior, rng_key = one_sample_step_groups(
-#             subkey, x_list[i], theta_star_list[i], bounds,
-#             models_per_group, visible_indices, group_indices,
-#             n_warmup, n_samples
-#         )
-#         f_vals.append(f_val)
-#         posteriors.append(posterior)
-#     f_vals = jnp.stack(f_vals)
-#     posteriors = jnp.stack(posteriors)
-#     ecp_vals = [jnp.mean(f_vals < (1 - alpha)) for alpha in alpha_list]
-#     return ecp_vals, f_vals, posteriors, rng_key
 
 def compute_ecp_tarp_groups(models_per_group, x_list, theta_star_list, alpha_list,
                             bounds, visible_indices, group_indices,
