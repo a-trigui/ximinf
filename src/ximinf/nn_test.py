@@ -44,8 +44,8 @@ def inference_loop(rng_key, initial_state, kernel, num_samples):
         return new_state, new_state.position
 
     keys = jax.random.split(rng_key, num_samples)
-    _, states = jax.lax.scan(one_step, initial_state, keys)
-    return states
+    _, positions = jax.lax.scan(one_step, initial_state, keys)
+    return positions
 
 
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
