@@ -103,6 +103,7 @@ def compute_ecp_tarp_groups(models_per_group, x_list, theta_star_list, alpha_lis
     f_vals = []
     posteriors = []
     for i in range(x_list.shape[0]):
+        print(f"Processing sample {i+1}/{x_list.shape[0]}")
         rng_key, subkey = jax.random.split(rng_key)
         f_val, posterior, rng_key = one_sample_step_groups(
             subkey, x_list[i], theta_star_list[i], bounds,
