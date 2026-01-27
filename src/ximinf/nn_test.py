@@ -126,7 +126,7 @@ def make_nuts_kernel(log_prob, init_position, rng_key, n_warmup):
     kernel = blackjax.nuts(log_prob, **params).step
     return kernel, state
 
-@partial(jax.jit, static_argnums=(2,))
+@partial(jax.jit, static_argnums=(2,3))
 def one_sample_step_groups(
         rng_key,
         theta_star,
