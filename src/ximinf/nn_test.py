@@ -80,7 +80,7 @@ def one_sample_step_groups(rng_key, xi, theta_star, bounds,
                            models_per_group, visible_indices, group_indices,
                            n_warmup, n_samples):
     # Split rng for reference and MCMC
-    rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 4)
+    rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 3)
     
     # Reference point
     _, theta_r0 = sample_reference_point(key_r0, bounds)
