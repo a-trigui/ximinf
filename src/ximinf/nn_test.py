@@ -56,7 +56,7 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
     for v_idx, g_idx, model in zip(visible_indices, group_indices, models_per_group):
         theta_visible = theta[v_idx].reshape(1, -1)
         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-        logits += model(input_g).squeeze()
+        logits = model(input_g).squeeze()
         p = jax.nn.sigmoid(logits)
         log_r_sum += jnp.log(p) - jnp.log1p(-p)
         log_p_sum += log_group_prior(theta, bounds, g_idx)
