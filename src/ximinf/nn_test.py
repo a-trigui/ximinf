@@ -63,19 +63,32 @@ def inference_loop(rng_key, initial_state, kernel, num_samples):
 #         log_p_sum += log_group_prior(theta, bounds, g_idx)
 #     return log_r_sum + log_p_sum
 
+# def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
+#     xi = xi.reshape(1, -1)
+    
+#     def log_prob_single_group(v_idx, g_idx, model):
+#         theta_visible = theta[v_idx].reshape(1, -1)
+#         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
+#         log_r = model(input_g).squeeze()
+#         log_p = log_group_prior(theta, bounds, g_idx)
+#         return log_r + log_p
+
+#     # Vectorize over groups
+#     log_probs = jax.vmap(log_prob_single_group)(visible_indices, group_indices, models_per_group)
+#     return jnp.sum(log_probs)
+
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
     xi = xi.reshape(1, -1)
-    
-    def log_prob_single_group(v_idx, g_idx, model):
+    log_r_sum = 0.0
+    log_p_sum = 0.0
+
+    for v_idx, g_idx, model in zip(visible_indices, group_indices, models_per_group):
         theta_visible = theta[v_idx].reshape(1, -1)
         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-        log_r = model(input_g).squeeze()
-        log_p = log_group_prior(theta, bounds, g_idx)
-        return log_r + log_p
+        log_r_sum += model(input_g).squeeze()
+        log_p_sum += log_group_prior(theta, bounds, g_idx)
 
-    # Vectorize over groups
-    log_probs = jax.vmap(log_prob_single_group)(visible_indices, group_indices, models_per_group)
-    return jnp.sum(log_probs)
+    return log_r_sum + log_p_sum
 
 
 # ----------------------------
