@@ -70,7 +70,7 @@ def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     (warmup_state, params), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
     kernel = blackjax.nuts(log_prob, **params).step
     rng_key, sample_key = jax.random.split(rng_key)
-    states = inference_loop(sample_key, kernel, warmup_state, n_samples)
+    states = inference_loop(sample_key, warmup_state, kernel, n_samples)
     return rng_key, states.position
 
 # ----------------------------
