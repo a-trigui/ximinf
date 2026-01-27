@@ -38,14 +38,16 @@ def sample_reference_point(rng_key, bounds):
     theta = bounds[:, 0] + u * (bounds[:, 1] - bounds[:, 0])
     return rng_key, theta
 
-@partial(jax.jit, static_argnums=2)
+@partial(jax.jit, static_argnums=(2, 3))  # kernel and num_samples are static
 def inference_loop(rng_key, initial_state, kernel, num_samples):
     def one_step(state, rng):
         new_state, _ = kernel(rng, state)
         return new_state, new_state.position
+
     keys = jax.random.split(rng_key, num_samples)
     _, positions = jax.lax.scan(one_step, initial_state, keys)
     return positions
+
 
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
     log_r_sum = 0.0
@@ -83,7 +85,7 @@ def one_sample_step_groups(rng_key, xi, theta_star, bounds,
     kernel = blackjax.nuts(log_post, **params).step
     
     # Sample posterior
-    posterior = inference_loop(key_mcmc, state, kernel, n_samples)
+    posterior = inference_loop(key_mcmc, state, kernel, int(n_samples))
     
     # Compute ECP statistic
     d_star = distance(theta_star, theta_r0)
