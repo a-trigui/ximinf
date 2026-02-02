@@ -68,7 +68,7 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
 
     return log_r_sum + log_p_sum
 
-@jax.jit
+@partial(jax.jit, static_argnums=(0,))
 def build_kernel(log_prob, init_position, n_warmup, rng_key):
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
     rng_key, warmup_key = jax.random.split(rng_key)
