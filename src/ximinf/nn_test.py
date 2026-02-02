@@ -38,22 +38,25 @@ def sample_reference_point(rng_key, bounds):
     return rng_key, theta
 
 @jax.jit
-def one_step(kernel, state, rng):
-    new_state, _ = kernel(rng, state)
+def one_step(kernel, state, rng_key):
+    new_state, _ = kernel(rng_key, state)
     return new_state, new_state.position
 
 @partial(jax.jit, static_argnums=(2, 3))  # kernel and num_samples are static
-def inference_loop(rng_key, initial_state, kernel, num_samples):
-    keys = jax.random.split(rng_key, num_samples)
+def inference_loop(initial_state, kernel, num_samples, rng_key):
+    print('INFERENCE LOOP')
+    rng_key, sample_key = jax.random.split(rng_key)
+    keys = jax.random.split(sample_key, num_samples)
     _, positions = jax.lax.scan(
         lambda state, rng: one_step(kernel, state, rng),
         initial_state,
         keys
     )
-    return positions
+    return rng_key, positions
 
 @partial(jax.jit, static_argnums=(1,))
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
+    print('LOGPROB')
     xi = xi.reshape(1, -1)
     log_r_sum = 0.0
     log_p_sum = 0.0
@@ -70,6 +73,7 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
 
 @partial(jax.jit, static_argnums=(0,))
 def build_kernel(log_prob, init_position, n_warmup, rng_key):
+    print('BUILD KERNEL')
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
     rng_key, warmup_key = jax.random.split(rng_key)
     (warmup_state, params), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
@@ -78,10 +82,9 @@ def build_kernel(log_prob, init_position, n_warmup, rng_key):
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
-    print('test jit')
-    warmup_state, kernel, rng_key = build_kernel(log_prob, init_position, n_warmup)
-    rng_key, sample_key = jax.random.split(rng_key)
-    positions = inference_loop(sample_key, warmup_state, kernel, n_samples)
+    print('SAMPLE POSTERIOR')
+    warmup_state, kernel, rng_key = build_kernel(log_prob, init_position, n_warmup, rng_key)
+    rng_key, positions = inference_loop(warmup_state, kernel, n_samples, rng_key)
     return rng_key, positions
 
 # ----------------------------
