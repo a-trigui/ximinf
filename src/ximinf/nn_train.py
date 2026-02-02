@@ -242,31 +242,8 @@ def train_test_split_indices_jax(N, test_size=0.3, shuffle=False, key=None, fixe
     train_idx = jnp.setdiff1d(jnp.arange(N), test_idx)
     return train_idx, test_idx
 
-
 @nnx.jit
-def l2_loss(model, alpha):
-    """
-    Compute L2 regularization loss for model parameters.
-
-    Parameters
-    ----------
-    params : list
-        List of model parameters (weights and biases).
-    alpha : float
-        Regularization coefficient (penalty term).
-
-    Returns
-    -------
-    float
-        L2 regularization loss.
-    """
-    params_tree = nnx.state(model, nnx.Param)
-    params = jax.tree.leaves(params_tree)
-
-    return alpha * sum((param ** 2).sum() for param in params)
-
-@nnx.jit
-def loss_fn(model, batch, l2_reg=1e-5):
+def loss_fn(model, batch):
     """
     Compute the total loss, which is the sum of the data loss and L2 regularization.
 
@@ -291,10 +268,7 @@ def loss_fn(model, batch, l2_reg=1e-5):
     logits = model(x_batch)
     data_loss = optax.sigmoid_binary_cross_entropy(logits, labels).mean()
 
-    # Compute l2 regularisation loss
-    l2 = l2_loss(model, alpha=l2_reg)
-
-    loss = data_loss + l2
+    loss = data_loss
     return loss, logits
 
 @nnx.jit

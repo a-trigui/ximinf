@@ -37,17 +37,22 @@ def sample_reference_point(rng_key, bounds):
     theta = bounds[:, 0] + u * (bounds[:, 1] - bounds[:, 0])
     return rng_key, theta
 
+@jax.jit
+def one_step(kernel, state, rng):
+    new_state, _ = kernel(rng, state)
+    return new_state, new_state.position
+
 @partial(jax.jit, static_argnums=(2, 3))  # kernel and num_samples are static
 def inference_loop(rng_key, initial_state, kernel, num_samples):
-    def one_step(state, rng):
-        new_state, _ = kernel(rng, state)
-        return new_state, new_state.position
-
     keys = jax.random.split(rng_key, num_samples)
-    _, positions = jax.lax.scan(one_step, initial_state, keys)
+    _, positions = jax.lax.scan(
+        lambda state, rng: one_step(kernel, state, rng),
+        initial_state,
+        keys
+    )
     return positions
 
-
+@partial(jax.jit, static_argnums=(1,))
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
     xi = xi.reshape(1, -1)
     log_r_sum = 0.0
@@ -63,12 +68,18 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
 
     return log_r_sum + log_p_sum
 
-@partial(jax.jit, static_argnums=(0, 1, 2))
-def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
+@jax.jit
+def build_kernel(log_prob, init_position, n_warmup, rng_key):
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
-    rng_key, warmup_key, sample_key = jax.random.split(rng_key, 3)
+    rng_key, warmup_key = jax.random.split(rng_key)
     (warmup_state, params), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
     kernel = blackjax.nuts(log_prob, **params).step
+    return rng_key, kernel, warmup_state
+
+@partial(jax.jit, static_argnums=(0, 1, 2))
+def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
+    print('test jit')
+    warmup_state, kernel, rng_key = build_kernel(log_prob, init_position, n_warmup)
     rng_key, sample_key = jax.random.split(rng_key)
     positions = inference_loop(sample_key, warmup_state, kernel, n_samples)
     return rng_key, positions
