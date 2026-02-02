@@ -54,22 +54,43 @@ def inference_loop(initial_state, kernel, num_samples, rng_key):
     )
     return rng_key, positions
 
-@partial(jax.jit, static_argnums=(1,))
+# @partial(jax.jit, static_argnums=(1,))
+# def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
+#     print('LOGPROB')
+#     xi = xi.reshape(1, -1)
+#     log_r_sum = 0.0
+#     log_p_sum = 0.0
+
+#     for v_idx, g_idx, model in zip(visible_indices, group_indices, models_per_group):
+#         theta_visible = theta[v_idx].reshape(1, -1)
+#         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
+#         logits = model(input_g).squeeze()
+#         p = jax.nn.sigmoid(logits)
+#         log_r_sum += jnp.log(p) - jnp.log1p(-p)
+#         log_p_sum += log_group_prior(theta, bounds, g_idx)
+
+#     return log_r_sum + log_p_sum
+
+@jax.jit
+def log_prob_single_group(theta_visible, model, xi, g_idx, theta, bounds):
+    input_g = jnp.concatenate([xi, theta_visible], axis=-1)
+    logits = model(input_g).squeeze()
+    p = jax.nn.sigmoid(logits)
+    log_r = jnp.log(p) - jnp.log1p(-p)
+    log_p = log_group_prior(theta, bounds, g_idx)
+    return log_r + log_p
+
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
-    print('LOGPROB')
     xi = xi.reshape(1, -1)
-    log_r_sum = 0.0
-    log_p_sum = 0.0
+    log_sum = 0.0
 
     for v_idx, g_idx, model in zip(visible_indices, group_indices, models_per_group):
         theta_visible = theta[v_idx].reshape(1, -1)
-        input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-        logits = model(input_g).squeeze()
-        p = jax.nn.sigmoid(logits)
-        log_r_sum += jnp.log(p) - jnp.log1p(-p)
-        log_p_sum += log_group_prior(theta, bounds, g_idx)
+        log_prob = log_prob_single_group(theta_visible, model, xi, g_idx, theta, bounds)
+        log_sum += log_prob
 
-    return log_r_sum + log_p_sum
+    return log_sum
+
 
 @partial(jax.jit, static_argnums=(0,))
 def build_kernel(log_prob, init_position, n_warmup, rng_key):
