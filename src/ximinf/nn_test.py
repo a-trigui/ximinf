@@ -71,7 +71,7 @@ def inference_loop(initial_state, kernel, num_samples, rng_key):
 
 #     return log_r_sum + log_p_sum
 
-@jax.jit
+@partial(jax.jit, static_argnums=(1,))
 def log_prob_single_group(theta_visible, model, xi, g_idx, theta, bounds):
     input_g = jnp.concatenate([xi, theta_visible], axis=-1)
     logits = model(input_g).squeeze()
