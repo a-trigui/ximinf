@@ -76,7 +76,7 @@ def inference_loop(initial_state, kernel, num_samples, rng_key):
 
 @partial(jax.jit, static_argnums=(1,))
 def log_prob_single_group(theta_visible, model, xi, g_idx, theta, bounds):
-    print('LOG PROB 1 GROUP')
+    print(f'LOG PROB GROUP {g_idx+1}')
     input_g = jnp.concatenate([xi, theta_visible], axis=-1)
     logits = model(input_g).squeeze()
     p = jax.nn.sigmoid(logits)
@@ -95,7 +95,6 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
 
     return log_sum
 
-# @partial(jax.jit, static_argnums=(0,2))
 def build_kernel(log_prob, init_position, n_warmup, rng_key):
     print('BUILD KERNEL')
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
