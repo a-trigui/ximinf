@@ -42,7 +42,7 @@ def one_step(kernel, state, rng_key):
     new_state, _ = kernel(rng_key, state)
     return new_state, new_state.position
 
-@partial(jax.jit, static_argnums=(2, 3))  # kernel and num_samples are static
+@partial(jax.jit, static_argnums=(1, 2))  # kernel and num_samples are static
 def inference_loop(initial_state, kernel, num_samples, rng_key):
     print('INFERENCE LOOP')
     rng_key, sample_key = jax.random.split(rng_key)
