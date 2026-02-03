@@ -37,7 +37,7 @@ def sample_reference_point(rng_key, bounds):
     theta = bounds[:, 0] + u * (bounds[:, 1] - bounds[:, 0])
     return rng_key, theta
 
-@jax.jit
+@partial(jax.jit, static_argnums=(0,)) 
 def one_step(kernel, state, rng_key):
     new_state, _ = kernel(rng_key, state)
     return new_state, new_state.position
