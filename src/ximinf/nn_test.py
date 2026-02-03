@@ -39,44 +39,39 @@ def sample_reference_point(rng_key, bounds):
     theta = bounds[:, 0] + u * (bounds[:, 1] - bounds[:, 0])
     return rng_key, theta
 
-@partial(jax.jit, static_argnums=(0,)) 
-def one_step(kernel, state, rng_key):
-    print('ONE STEP')
-    new_state, _ = kernel(rng_key, state)
-    return new_state, new_state.position
+# @partial(jax.jit, static_argnums=(0,)) 
+# def one_step(kernel, state, rng_key):
+#     print('ONE STEP')
+#     new_state, _ = kernel(rng_key, state)
+#     return new_state, new_state.position
 
-@partial(jax.jit, static_argnums=(1, 2))  # kernel and num_samples are static
+# @partial(jax.jit, static_argnums=(1, 2))  # kernel and num_samples are static
+# def inference_loop(initial_state, kernel, num_samples, rng_key):
+#     print('INFERENCE LOOP')
+#     rng_key, sample_key = jax.random.split(rng_key)
+#     keys = jax.random.split(sample_key, num_samples)
+#     _, positions = jax.lax.scan(
+#         lambda state, rng: one_step(kernel, state, rng),
+#         initial_state,
+#         keys
+#     )
+#     return rng_key, positions
+
 def inference_loop(initial_state, kernel, num_samples, rng_key):
-    print('INFERENCE LOOP')
+    @jax.jit
+    def one_step(state, rng_key):
+        state, _ = kernel(rng_key, state)
+        return state, state.position
+    
     rng_key, sample_key = jax.random.split(rng_key)
     keys = jax.random.split(sample_key, num_samples)
-    _, positions = jax.lax.scan(
-        lambda state, rng: one_step(kernel, state, rng),
-        initial_state,
-        keys
-    )
+    _, positions = jax.lax.scan(one_step, initial_state, keys)
+
     return rng_key, positions
 
 # @partial(jax.jit, static_argnums=(1,))
-# def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
-#     print('LOGPROB')
-#     xi = xi.reshape(1, -1)
-#     log_r_sum = 0.0
-#     log_p_sum = 0.0
-
-#     for v_idx, g_idx, model in zip(visible_indices, group_indices, models_per_group):
-#         theta_visible = theta[v_idx].reshape(1, -1)
-#         input_g = jnp.concatenate([xi, theta_visible], axis=-1)
-#         logits = model(input_g).squeeze()
-#         p = jax.nn.sigmoid(logits)
-#         log_r_sum += jnp.log(p) - jnp.log1p(-p)
-#         log_p_sum += log_group_prior(theta, bounds, g_idx)
-
-#     return log_r_sum + log_p_sum
-
-@partial(jax.jit, static_argnums=(1,))
 def log_prob_single_group(theta_visible, model, xi, g_idx, theta, bounds):
-    print(f'LOG PROB GROUP {g_idx+1}')
+    # print(f'LOG PROB GROUP {g_idx+1}')
     input_g = jnp.concatenate([xi, theta_visible], axis=-1)
     logits = model(input_g).squeeze()
     p = jax.nn.sigmoid(logits)
@@ -96,16 +91,16 @@ def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, gro
     return log_sum
 
 def build_kernel(log_prob, init_position, n_warmup, rng_key):
-    print('BUILD KERNEL')
+    # print('BUILD KERNEL')
     warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
     rng_key, warmup_key = jax.random.split(rng_key)
     (warmup_state, params), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
     kernel = blackjax.nuts(log_prob, **params).step
     return rng_key, kernel, warmup_state
 
-@partial(jax.jit, static_argnums=(0, 1, 2))
+# @partial(jax.jit, static_argnums=(0, 1, 2))
 def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
-    print('SAMPLE POSTERIOR')
+    # print('SAMPLE POSTERIOR')
     rng_key, kernel, warmup_state = build_kernel(log_prob, init_position, n_warmup, rng_key)
     rng_key, positions = inference_loop(warmup_state, kernel, n_samples, rng_key)
     return rng_key, positions
