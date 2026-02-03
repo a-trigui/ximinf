@@ -104,7 +104,7 @@ def build_kernel(log_prob, init_position, n_warmup, rng_key):
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     print('SAMPLE POSTERIOR')
-    rng_key, warmup_state, kernel  = build_kernel(log_prob, init_position, n_warmup, rng_key)
+    rng_key, kernel, warmup_state = build_kernel(log_prob, init_position, n_warmup, rng_key)
     rng_key, positions = inference_loop(warmup_state, kernel, n_samples, rng_key)
     return rng_key, positions
 
