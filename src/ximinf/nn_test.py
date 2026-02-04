@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 import blackjax
-from functools import partial
 
 # ----------------------------
 # Utilities
@@ -30,7 +29,6 @@ def distance(theta1, theta2):
 #     bounds_g = bounds[group_indices]
 #     in_bounds = jnp.all((theta_g >= bounds_g[:, 0]) & (theta_g <= bounds_g[:, 1]))
 #     return jnp.where(in_bounds, 0.0, -jnp.inf)
-
 
 # def log_group_prior(theta, bounds, group_indices):
 #     theta_g = theta[group_indices]
