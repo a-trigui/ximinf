@@ -25,11 +25,25 @@ def distance(theta1, theta2):
     print('DISTANCE')
     return jnp.linalg.norm(theta1 - theta2)
 
-def log_group_prior(theta, bounds, group_indices):
-    theta_g = theta[group_indices]
-    bounds_g = bounds[group_indices]
-    in_bounds = jnp.all((theta_g >= bounds_g[:, 0]) & (theta_g <= bounds_g[:, 1]))
-    return jnp.where(in_bounds, 0.0, -jnp.inf)
+# def log_group_prior(theta, bounds, group_indices):
+#     theta_g = theta[group_indices]
+#     bounds_g = bounds[group_indices]
+#     in_bounds = jnp.all((theta_g >= bounds_g[:, 0]) & (theta_g <= bounds_g[:, 1]))
+#     return jnp.where(in_bounds, 0.0, -jnp.inf)
+
+
+# def log_group_prior(theta, bounds, group_indices):
+#     theta_g = theta[group_indices]
+#     bounds_g = bounds[group_indices]
+
+#     mu = 0.5 * (bounds_g[:, 0] + bounds_g[:, 1])
+#     sigma = (bounds_g[:, 1] - bounds_g[:, 0]) / (2.0 * 1.96)
+
+#     log_norm = -jnp.log(sigma * jnp.sqrt(2.0 * jnp.pi))
+#     log_exp = -0.5 * ((theta_g - mu) / sigma) ** 2
+
+#     return jnp.sum(log_norm + log_exp)
+
 
 @jax.jit
 def sample_reference_point(rng_key, bounds):
@@ -38,24 +52,6 @@ def sample_reference_point(rng_key, bounds):
     u = jax.random.uniform(subkey, shape=(bounds.shape[0],))
     theta = bounds[:, 0] + u * (bounds[:, 1] - bounds[:, 0])
     return rng_key, theta
-
-# @partial(jax.jit, static_argnums=(0,)) 
-# def one_step(kernel, state, rng_key):
-#     print('ONE STEP')
-#     new_state, _ = kernel(rng_key, state)
-#     return new_state, new_state.position
-
-# @partial(jax.jit, static_argnums=(1, 2))  # kernel and num_samples are static
-# def inference_loop(initial_state, kernel, num_samples, rng_key):
-#     print('INFERENCE LOOP')
-#     rng_key, sample_key = jax.random.split(rng_key)
-#     keys = jax.random.split(sample_key, num_samples)
-#     _, positions = jax.lax.scan(
-#         lambda state, rng: one_step(kernel, state, rng),
-#         initial_state,
-#         keys
-#     )
-#     return rng_key, positions
 
 def inference_loop(initial_state, kernel, num_samples, rng_key):
     @jax.jit
@@ -76,8 +72,8 @@ def log_prob_single_group(theta_visible, model, xi, g_idx, theta, bounds):
     logits = model(input_g).squeeze()
     p = jax.nn.sigmoid(logits)
     log_r = jnp.log(p) - jnp.log1p(-p)
-    log_p = log_group_prior(theta, bounds, g_idx)
-    return log_r + log_p
+    # log_p = log_group_prior(theta, bounds, g_idx)
+    return log_r #+ log_p
 
 def log_prob_fn_groups(theta, models_per_group, xi, bounds, visible_indices, group_indices):
     xi = xi.reshape(1, -1)

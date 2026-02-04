@@ -1,10 +1,10 @@
 # Standard and scientific
 import os
 import pickle
-import numpy as np  # Numerical Python
-import scipy as sp
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
+import subprocess
+import numpy as np
 
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
@@ -21,45 +21,31 @@ ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 # Cosmology
 from astropy.cosmology import Planck18
 
-def rm_cosmo(z, magobs, ref_mag=19.3, z_max=0.1, n_grid=100_000):
+def rm_cosmo(z, magobs, ref_mag=19.3):
     """
-    Interpolate Planck18 distance modulus and compute residuals to the cosmology
-    
+    Compute distance modulus and residuals directly at dataset redshifts.
+
     Parameters
     ----------
     z : array-like (JAX array)
         Redshift values of the dataset.
     magobs : array-like (JAX array)
         Observed magnitudes.
-    magabs : array-like (JAX array)
-        Absolute magnitudes.
     ref_mag : float, optional
         Reference magnitude to normalize magnitudes (default=19.3).
-    z_max : float, optional
-        Maximum redshift for interpolation grid (default=0.2).
-    n_grid : int, optional
-        Number of points in the interpolation grid (default=1_000_000).
 
     Returns
     -------
     mu_planck18 : jax.numpy.ndarray
-        Interpolated distance modulus.
+        Distance modulus at the dataset redshifts.
     magobs_corr : jax.numpy.ndarray
         Observed magnitudes corrected for cosmology.
-    magabs_corr : jax.numpy.ndarray
-        Absolute magnitudes corrected for cosmology.
     """
-    print('Building Planck18 interpolation...')
-    z_grid = np.linspace(1e-12, z_max, n_grid)
-    mu_grid = Planck18.distmod(z_grid).value
-    mu_interp_fn = sp.interpolate.interp1d(z_grid, mu_grid, kind='linear', bounds_error=False, fill_value='extrapolate')
-    print('... done')
+    # Direct evaluation
+    z_np = np.array(z)
+    mu_planck18 = jnp.array(Planck18.distmod(z_np).value)
 
-    print('Interpolating mu for dataset...')
-    mu_np = mu_interp_fn(np.array(z))
-    mu_planck18 = jnp.array(mu_np)
-    print('... done')
-
+    # Correct observed magnitudes
     magobs_corr = magobs - mu_planck18 + ref_mag
 
     return mu_planck18, magobs_corr
@@ -85,83 +71,6 @@ def unnormalize(normed_params, param_stats):
         else:
             unnormed[k] = v  # leave untouched
     return unnormed
-
-def gaussian(x, mu, sigma):
-    """
-    Compute the normalized Gaussian function.
-
-    Parameters
-    ----------
-    x : array-like
-        Input values.
-    mu : float
-        Mean of the Gaussian.
-    sigma : float
-        Standard deviation of the Gaussian.
-
-    Returns
-    -------
-    array-like
-        The values of the Gaussian function evaluated at x.
-    """
-    prefactor = 1 / (np.sqrt(2 * np.pi * sigma**2))
-    exponent = np.exp(-((x - mu)**2) / (2 * sigma**2))
-    return prefactor * exponent
-
-# linear model
-def linear(x,a,b): 
-    """
-    Linear model: y = a * x + b
-
-    Parameters
-    ----------
-    x : array-like
-        Input values.
-    a : float
-        Slope of the line.
-    b : float
-        Intercept of the line.
-
-    Returns
-    -------
-    array-like
-        Output of the linear model applied to x.
-    """
-    return a*x + b
-
-# Jax LHS sampler
-def lhs_jax(key, n_dim, n):
-    """
-    Generate Latin Hypercube Samples (LHS) in [0, 1]^n_dim using JAX.
-
-    Each of the `n_dim` dimensions is divided into `n` strata, and 
-    points are randomly placed within each stratum to ensure space-filling coverage.
-
-    Parameters
-    ----------
-    key : jax.random.PRNGKey
-        Random key for reproducibility.
-    n_dim : int
-        Number of dimensions (features).
-    n : int
-        Number of samples.
-
-    Returns
-    -------
-    jax.numpy.ndarray
-        Array of shape (n, n_dim) with values in [0, 1], representing the LHS sample.
-    """
-
-    # Create a matrix of shape (n, n_dim) where each column is a permutation of 0..n-1
-    keys = jax.random.split(key, n_dim)
-    perms = [jax.random.permutation(k, n) for k in keys]
-    bins = jnp.stack(perms, axis=1).astype(jnp.float32)  # shape (n, n_dim)
-    
-    # Now jitter inside each bin
-    key, subkey = jax.random.split(key)
-    jitter = jax.random.uniform(subkey, (n, n_dim))
-    
-    return (bins + jitter) / n
 
 # Jax train-test split 
 def train_test_split_jax(X, y, test_size=0.3, shuffle=False, key=None):
@@ -202,45 +111,6 @@ def train_test_split_jax(X, y, test_size=0.3, shuffle=False, key=None):
         X, y = X[perm], y[perm]
 
     return X[:N_train], X[N_train:], y[:N_train], y[N_train:]
-
-def train_test_split_indices_jax(N, test_size=0.3, shuffle=False, key=None, fixed_test_idx=None):
-    """
-    Generate train/test indices in JAX, optionally using a fixed test set.
-
-    Parameters
-    ----------
-    N : int
-        Total number of samples.
-    test_size : float
-        Fraction of the dataset to use as test data.
-    shuffle : bool
-        Whether to shuffle before splitting (ignored if fixed_test_idx is provided).
-    key : jax.random.PRNGKey
-        Random key used for shuffling (required if shuffle=True and fixed_test_idx is None).
-    fixed_test_idx : jax.numpy.ndarray, optional
-        Predefined indices to use as test set (persistent across rounds).
-
-    Returns
-    -------
-    train_idx : jax.numpy.ndarray
-        Indices for the training set.
-    test_idx : jax.numpy.ndarray
-        Indices for the test set.
-    """
-
-    N_test = int(jnp.floor(test_size * N))
-
-    if fixed_test_idx is None:
-        if shuffle:
-            perm = jax.random.permutation(key, N)
-        else:
-            perm = jnp.arange(N)
-        test_idx = perm[:N_test]
-    else:
-        test_idx = fixed_test_idx
-
-    train_idx = jnp.setdiff1d(jnp.arange(N), test_idx)
-    return train_idx, test_idx
 
 @nnx.jit
 def loss_fn(model, batch):
@@ -613,3 +483,11 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:
         pickle.dump(model_config, f)
+
+def print_gpu_memory():
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,nounits,noheader"],
+        capture_output=True, text=True
+    )
+    used, total = map(int, result.stdout.strip().split(','))
+    print(f"GPU memory used: {used} MB / {total} MB")
