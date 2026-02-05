@@ -6,24 +6,20 @@ import ztfidr.simulation as sim
 import skysurvey_sniapop
 from scipy.special import erfinv
 
-def scan_params(ranges, N, n_realisation=1, priors=None, dtype=np.float32):
+def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     """
     Generate sampled parameter sets using Latin Hypercube Sampling (LHS),
-    with optional duplication for multiple realizations per parameter tuple,
-    and allowing per-parameter priors.
+    using the per-parameter priors defined in `priors`.
 
     Parameters
     ----------
-    ranges : dict
-        Mapping parameter names to (min, max) tuples.
+    priors : dict
+        Mapping param name -> {'range': (low, high), 'type': str}.
+        Supported types: 'uniform', 'gaussian', 'half-gaussian', 'log-uniform'.
     N : int
         Number of distinct parameter tuples.
     n_realisation : int, optional
         Number of realizations per parameter tuple.
-    priors : dict or None
-        Prior type for each parameter. Supported:
-        'uniform', 'gaussian', 'half-gaussian', 'log-uniform'.
-        If None, defaults to 'uniform' for all parameters.
     dtype : data-type, optional
         Numeric type for the sampled arrays (default is np.float32).
 
@@ -32,11 +28,8 @@ def scan_params(ranges, N, n_realisation=1, priors=None, dtype=np.float32):
     params_dict : dict
         Dictionary of parameter arrays of shape (N * n_realisation,).
     """
-    param_names = list(ranges.keys())
+    param_names = list(priors.keys())
     n_params = len(param_names)
-
-    if priors is None:
-        priors = {p: 'uniform' for p in param_names}
 
     # LHS unit samples in [0,1]
     unit_samples = lhs(n_params, samples=N)  # shape (N, n_params)
@@ -44,36 +37,37 @@ def scan_params(ranges, N, n_realisation=1, priors=None, dtype=np.float32):
 
     for i, p in enumerate(param_names):
         u = unit_samples[:, i]
-        prior = priors.get(p, 'uniform')
-        low, high = ranges[p]
+        info = priors[p]
+        low, high = info["range"]
+        ptype = info["type"]
 
-        if prior == 'uniform':
+        if ptype == 'uniform':
             samples[:, i] = u * (high - low) + low
-        elif prior == 'gaussian':
+        elif ptype == 'gaussian':
             mu = 0.5 * (low + high)
-            sigma = (high - low) / (2 * 1.96)
+            sigma = (high - low) / (2.0 * 1.96)
             gaussian = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)
             samples[:, i] = mu + sigma * gaussian
-        elif prior == 'half-gaussian':
+        elif ptype == 'half-gaussian':
             if low != 0:
                 raise ValueError(f"Half-Gaussian prior requires low=0, got {low}")
-            sigma = high / 1.96  # 95% interval: P(0 <= X <= high) ≈ 0.95
+            sigma = high / 1.96
             gaussian = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)
             samples[:, i] = np.abs(gaussian) * sigma
-        elif prior == 'log-uniform':
+        elif ptype == 'log-uniform':
             if low <= 0:
                 raise ValueError(f"log-uniform prior for '{p}' requires low>0")
             samples[:, i] = low * (high / low) ** u
         else:
-            raise ValueError(f"Unknown prior '{prior}' for parameter '{p}'")
+            raise ValueError(f"Unknown prior type '{ptype}' for parameter '{p}'")
 
+    # Repeat for multiple realizations if needed
     params_dict = {p: np.repeat(samples[:, i], n_realisation).astype(dtype)
-               for i, p in enumerate(param_names)}
+                   for i, p in enumerate(param_names)}
 
     return params_dict
 
 
-    
 def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     """
     Simulate a single dataset of SNe Ia.
