@@ -5,8 +5,7 @@ from pyDOE import lhs  # LHS sampler
 import ztfidr.simulation as sim
 import skysurvey_sniapop
 from scipy.special import erfinv
-from astropy import cosmology
-planck18 = cosmology.planck18
+from astropy.cosmology import Planck18, FlatLambdaCDM
 
 def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     """
@@ -129,9 +128,9 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     x1_ref_ = float(params["x1_ref"])
 
     if "Om0" in params:
-        cosmo = cosmology.FlatLambdaCDM(**(planck18.parameters | {"Om0":params["Om0"]}))    
+        cosmo = FlatLambdaCDM(**(Planck18.parameters | {"Om0":params["Om0"]}))    
     else:
-        cosmo = cosmology.FlatLambdaCDM(**(planck18.parameters))      
+        cosmo = FlatLambdaCDM(**(Planck18.parameters))      
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
