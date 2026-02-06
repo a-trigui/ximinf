@@ -5,6 +5,7 @@ from pyDOE import lhs  # LHS sampler
 import ztfidr.simulation as sim
 import skysurvey_sniapop
 from scipy.special import erfinv
+from astropy.cosmology import FlatLambdaCDM
 
 def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     """
@@ -126,12 +127,10 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     sigma_int_ = float(params["sigma_int"])
     x1_ref_ = float(params["x1_ref"])
 
-    base_cosmo = skysurvey.target.core.cosmology.default_cosmology()
+    cosmo = skysurvey.target.core.cosmology.default_cosmology
     
     if "Om0" in params:
-        cosmo = base_cosmo.clone(Om0=params["Om0"])
-    else:
-        cosmo = base_cosmo
+        cosmo.set(Om0=params["Om0"])
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
