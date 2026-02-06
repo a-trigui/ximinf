@@ -153,11 +153,9 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         },
         magobs={
             'func': 'magabs_to_magobs',
-            'kwargs': {
-                'z': '@z',
-                'magabs': '@magabs',
-                'cosmology': cosmo
-            }
+            'z': '@z',
+            'magabs': '@magabs',
+            'cosmology': cosmo
         }
     )
 
