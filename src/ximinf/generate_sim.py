@@ -109,6 +109,13 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         "x1_ref": -0.5
     }
 
+    base_cosmo = skysurvey.target.core.cosmology.default_cosmology
+    
+    if "Om0" in params:
+        cosmo = base_cosmo.clone(Om0=0.3)
+    else:
+        cosmo = base_cosmo
+
     # Merge defaults with provided params (params_dict takes priority)
     params = {**default_params, **params_dict}
 
@@ -143,13 +150,19 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
             "beta": beta_,
             "gamma": gamma_,
             "x1ref": x1_ref_
+        },
+        magobs={
+            'func': 'magabs_to_magobs',
+            'kwargs': {
+                'z': '@z',
+                'magabs': '@magabs',
+                'cosmology': cosmo
+            }
         }
     )
 
     # Apply noise
     errormodel = sim.noise_model
-    # errormodel.pop("localcolor", None)
-    # errormodel.pop("c", None)
     errormodel["localcolor"]["kwargs"]["a"] = 2
     errormodel["localcolor"]["kwargs"]["loc"] = 0.005
     errormodel["localcolor"]["kwargs"]["scale"] = 0.05
