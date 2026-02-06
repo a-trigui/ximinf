@@ -126,10 +126,10 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     sigma_int_ = float(params["sigma_int"])
     x1_ref_ = float(params["x1_ref"])
 
-    base_cosmo = skysurvey.target.core.cosmology.default_cosmology
+    base_cosmo = skysurvey.target.core.cosmology.default_cosmology()
     
     if "Om0" in params:
-        cosmo = base_cosmo.clone(Om0=0.3)
+        cosmo = base_cosmo.clone(Om0=params["Om0"])
     else:
         cosmo = base_cosmo
 
