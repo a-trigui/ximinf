@@ -109,13 +109,6 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
         "x1_ref": -0.5
     }
 
-    base_cosmo = skysurvey.target.core.cosmology.default_cosmology
-    
-    if "Om0" in params:
-        cosmo = base_cosmo.clone(Om0=0.3)
-    else:
-        cosmo = base_cosmo
-
     # Merge defaults with provided params (params_dict takes priority)
     params = {**default_params, **params_dict}
 
@@ -132,6 +125,13 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     gamma_ = float(params["gamma"])
     sigma_int_ = float(params["sigma_int"])
     x1_ref_ = float(params["x1_ref"])
+
+    base_cosmo = skysurvey.target.core.cosmology.default_cosmology
+    
+    if "Om0" in params:
+        cosmo = base_cosmo.clone(Om0=0.3)
+    else:
+        cosmo = base_cosmo
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
