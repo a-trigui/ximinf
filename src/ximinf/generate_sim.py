@@ -55,6 +55,10 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
             sigma = high / 1.96
             gaussian = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)
             samples[:, i] = np.abs(gaussian) * sigma
+        elif ptype == 'positive-gaussian':
+            sigma = high / 1.96
+            gaussian = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)
+            samples[:, i] = np.abs(gaussian) * sigma
         elif ptype == 'log-uniform':
             if low <= 0:
                 raise ValueError(f"log-uniform prior for '{p}' requires low>0")

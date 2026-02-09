@@ -238,8 +238,6 @@ class Phi(nnx.Module):
 
         return h
 
-
-
 class Rho(nnx.Module):
     """
     Neural network module for the Rho network in a Deep Set architecture
@@ -274,7 +272,6 @@ class Rho(nnx.Module):
         x = dropout(x)
 
         return self.linear4(x)
-
 
 class DeepSetClassifier(nnx.Module):
     """
