@@ -7,6 +7,8 @@ import skysurvey_sniapop
 from scipy.special import erfinv, erf
 from astropy.cosmology import Planck18, FlatLambdaCDM
 
+fb = Planck18.Ob0 / Planck18.Om0
+
 def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     """
     Generate sampled parameter sets using Latin Hypercube Sampling (LHS),
@@ -140,7 +142,13 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     x1_ref_ = float(params["x1_ref"])
 
     if "Om0" in params:
-        cosmo = FlatLambdaCDM(**(Planck18.parameters | {"Om0":params["Om0"]}))    
+        Om0 = params["Om0"]
+        Ob0 = fb * Om0
+
+        cosmo = FlatLambdaCDM(
+            **(Planck18.parameters | {"Om0": Om0, "Ob0": Ob0})
+        )
+        # cosmo = FlatLambdaCDM(**(Planck18.parameters | {"Om0":params["Om0"]}))    
     else:
         cosmo = FlatLambdaCDM(**(Planck18.parameters))      
 
