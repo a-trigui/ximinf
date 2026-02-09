@@ -4,7 +4,7 @@ import numpy as np
 from pyDOE import lhs  # LHS sampler
 import ztfidr.simulation as sim
 import skysurvey_sniapop
-from scipy.special import erfinv
+from scipy.special import erfinv, erf
 from astropy.cosmology import Planck18, FlatLambdaCDM
 
 def scan_params(priors, N, n_realisation=1, dtype=np.float32):
@@ -56,9 +56,17 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
             gaussian = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)
             samples[:, i] = np.abs(gaussian) * sigma
         elif ptype == 'positive-gaussian':
-            sigma = high / 1.96
-            gaussian = np.sqrt(2.0) * erfinv(2.0 * u - 1.0)
-            samples[:, i] = np.abs(gaussian) * sigma
+            mu = 0.5 * (low + high)
+            sigma = (high - low) / (2.0 * 1.96)
+
+            alpha = (0.0 - mu) / sigma
+            Phi_alpha = 0.5 * (1.0 + erf(alpha / np.sqrt(2.0)))
+
+            # Transform uniform samples into truncated normal
+            truncated_u = Phi_alpha + u * (1.0 - Phi_alpha)
+            gaussian = np.sqrt(2.0) * erfinv(2.0 * truncated_u - 1.0)
+
+            samples[:, i] = mu + sigma * gaussian
         elif ptype == 'log-uniform':
             if low <= 0:
                 raise ValueError(f"log-uniform prior for '{p}' requires low>0")
