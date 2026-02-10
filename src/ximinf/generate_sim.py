@@ -5,6 +5,7 @@ from pyDOE import lhs  # LHS sampler
 import ztfidr.simulation as sim
 import skysurvey_sniapop
 from scipy.special import erfinv, erf
+from scipy import stats
 from astropy.cosmology import Planck18, FlatLambdaCDM
 
 fb = Planck18.Ob0 / Planck18.Om0
@@ -83,7 +84,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, error_mult=1, N=None, i=None):
+def simulate_one(params_dict, z_max, M, cols, errormodel=sim.noise_model, N=None, i=None):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -176,14 +177,7 @@ def simulate_one(params_dict, z_max, M, cols, error_mult=1, N=None, i=None):
     )
 
     # Apply noise
-    errormodel = sim.noise_model
-    errormodel["localcolor"]["kwargs"]["a"] = 2
-    errormodel["localcolor"]["kwargs"]["loc"] = 0.005
-    errormodel["localcolor"]["kwargs"]["scale"] = 0.05
     noisy_snia = snia.apply_gaussian_noise(errormodel)
-
-    for dict_key in errormodel:
-        errormodel[dict_key]['scale'] = errormodel[dict_key]['scale']*error_mult
 
     df = noisy_snia.data
 
