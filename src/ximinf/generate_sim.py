@@ -83,7 +83,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
+def simulate_one(params_dict, z_max, M, cols, error_mult=1, N=None, i=None):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -181,6 +181,9 @@ def simulate_one(params_dict, z_max, M, cols, N=None, i=None):
     errormodel["localcolor"]["kwargs"]["loc"] = 0.005
     errormodel["localcolor"]["kwargs"]["scale"] = 0.05
     noisy_snia = snia.apply_gaussian_noise(errormodel)
+
+    for dict_key in errormodel:
+        errormodel[dict_key]['scale'] = errormodel[dict_key]['scale']*error_mult
 
     df = noisy_snia.data
 

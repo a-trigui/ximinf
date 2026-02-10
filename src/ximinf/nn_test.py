@@ -59,6 +59,22 @@ def log_group_prior(theta, priors, group_names, group_indices):
                 - 0.5 * (val / sigma) ** 2,
                 -jnp.inf,
             )
+        elif ptype == "positive-gaussian":
+            mu = 0.5 * (low + high)
+            sigma = (high - low) / (2.0 * 1.96)
+
+            alpha = (0.0 - mu) / sigma
+            Phi_alpha = 0.5 * (1.0 + jax.scipy.special.erf(alpha / jnp.sqrt(2.0)))
+
+            log_norm = -jnp.log(1.0 - Phi_alpha)
+
+            logp_i = jnp.where(
+                val >= 0.0,
+                -jnp.log(sigma * jnp.sqrt(2.0 * jnp.pi))
+                - 0.5 * ((val - mu) / sigma) ** 2
+                + log_norm,
+                -jnp.inf,
+            )
         elif ptype == "log-uniform":
             logp_i = jnp.where(
                 (val >= low) & (val <= high),
