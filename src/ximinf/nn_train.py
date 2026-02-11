@@ -21,7 +21,7 @@ ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 # Cosmology
 from astropy.cosmology import Planck18
 
-def rm_cosmo(z, magobs, ref_mag=19.3):
+def rm_cosmo(z, magobs, ref_mag=19.3, package='cosmologix'):
     """
     Compute distance modulus and residuals directly at dataset redshifts.
 
@@ -42,8 +42,14 @@ def rm_cosmo(z, magobs, ref_mag=19.3):
         Observed magnitudes corrected for cosmology.
     """
     # Direct evaluation
-    z_np = np.array(z)
-    mu_planck18 = jnp.array(Planck18.distmod(z_np).value)
+    if package == 'astropy':
+        z_np = np.array(z)
+        mu_planck18 = jnp.array(Planck18.distmod(z_np).value)
+    elif package == 'cosmologix':
+        from cosmologix import distances, parameters
+        mu_planck18 = distances.mu(parameters.get_cosmo_params('Planck18'), z)
+    else:
+        raise ValueError('The distance modulus must be calculated using either astropy or cosmologix')
 
     # Correct observed magnitudes
     magobs_corr = magobs - mu_planck18 + ref_mag
