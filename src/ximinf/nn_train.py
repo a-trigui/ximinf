@@ -211,11 +211,11 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, rngs=rngs)
+        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, rngs=rngs)
 
@@ -244,11 +244,11 @@ class Rho(nnx.Module):
     with separate LayerNorm for pooled features and theta.
     """
     def __init__(self, Nsize_p, Nsize_r, N_size_params, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + N_size_params, Nsize_r, rngs=rngs)
+        self.linear1 = nnx.Linear(Nsize_p + N_size_params, Nsize_r, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear4 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
