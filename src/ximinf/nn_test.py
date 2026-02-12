@@ -80,9 +80,6 @@ def log_group_prior(theta, priors, group_names, group_indices):
                 -jnp.inf,
             )
         elif ptype == "exponential":
-            if low != 0.0:
-                raise ValueError("Exponential prior requires low=0")
-
             lam = -jnp.log(1.0 - 0.95) / high
 
             logp_i = jnp.where(
