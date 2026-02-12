@@ -36,6 +36,8 @@ def log_group_prior(theta, priors, group_names, group_indices):
         info = priors[name]
         low, high = info["range"]
         ptype = info["type"]
+        low = jnp.asarray(low, dtype=val.dtype)
+        high = jnp.asarray(high, dtype=val.dtype)
 
         if ptype == "uniform":
             logp_i = jnp.where(
