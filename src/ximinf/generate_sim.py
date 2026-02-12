@@ -74,14 +74,11 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
             if low != 0:
                 raise ValueError(f"Exponential prior requires low=0, got {low}")
 
-            # Choose lambda so that 95% mass is inside [0, high]
-            # i.e. F(high) ≈ 0.95  →  1 - exp(-lambda*high) = 0.95
+            # 95% mass below `high`
             lam = -np.log(1.0 - 0.95) / high
 
-            # Truncated inverse CDF sampling
-            samples[:, i] = -np.log(
-                1.0 - u * (1.0 - np.exp(-lam * high))
-            ) / lam
+            # Standard exponential inverse CDF
+            samples[:, i] = -np.log(1.0 - u) / lam
         elif ptype == 'log-uniform':
             if low <= 0:
                 raise ValueError(f"log-uniform prior for '{p}' requires low>0")
