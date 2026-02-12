@@ -81,6 +81,20 @@ def log_group_prior(theta, priors, group_names, group_indices):
                 -jnp.log(val) - jnp.log(jnp.log(high / low)),
                 -jnp.inf,
             )
+        elif ptype == "exponential":
+            if low != 0.0:
+                raise ValueError("Exponential prior requires low=0")
+
+            # Same lambda definition as in sampling
+            lam = -jnp.log(1.0 - 0.95) / high
+
+            log_norm = -jnp.log(1.0 - jnp.exp(-lam * high))
+
+            logp_i = jnp.where(
+                (val >= 0.0) & (val <= high),
+                jnp.log(lam) - lam * val + log_norm,
+                -jnp.inf,
+            )
         else:
             raise ValueError(f"Unknown prior type '{ptype}'")
 
