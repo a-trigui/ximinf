@@ -47,16 +47,12 @@ def rm_cosmo(z, magobs, ref_mag=19.3, package='cosmologix'):
         mu_planck18 = jnp.array(Planck18.distmod(z_np).value, dtype=jnp.float32)
     elif package == 'cosmologix':
         from cosmologix import distances, parameters
-        mu_planck18 = distances.mu(parameters.get_cosmo_params('Planck18'), z)
-        mu_planck18 = jnp.array(mu_planck18, dtype=jnp.float32)  # enforce float32
+        mu_planck18 = distances.mu(parameters.get_cosmo_params('Planck18'), z).astype(jnp.float32)
     else:
         raise ValueError('The distance modulus must be calculated using either astropy or cosmologix')
 
     # Correct observed magnitudes
-    magobs_corr = magobs - mu_planck18 + jnp.array(ref_mag, dtype=jnp.float32)
-
-    # Ensure magobs_corr is float32 too
-    magobs_corr = jnp.array(magobs_corr, dtype=jnp.float32)
+    magobs_corr = magobs - mu_planck18 + ref_mag
 
     return mu_planck18, magobs_corr
 
