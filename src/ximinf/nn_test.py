@@ -19,10 +19,6 @@ def preprocess_groups(param_groups, global_param_names):
         prev = visible
     return visible_indices, group_indices
 
-@jax.jit
-def distance(theta1, theta2):
-    return jnp.linalg.norm(theta1 - theta2)
-
 def log_group_prior(theta, priors, group_names, group_indices):
     """
     theta: flat array
@@ -30,7 +26,7 @@ def log_group_prior(theta, priors, group_names, group_indices):
     group_names: list of names in this group
     group_indices: list/array of indices in theta corresponding to group_names
     """
-    logp = 0.0
+    logp = jnp.array(0.0, dtype=theta.dtype)
     for idx, name in zip(group_indices, group_names):
         val = theta[idx]
         info = priors[name]
@@ -99,7 +95,7 @@ def log_group_prior(theta, priors, group_names, group_indices):
 
         logp += logp_i
 
-    return logp
+    return jnp.array(logp, dtype=theta.dtype)
 
 
 def inference_loop(initial_state, kernel, num_samples, rng_key):
@@ -145,7 +141,7 @@ def log_prob_fn_groups(
     group_names_list,
 ):
     xi = xi.reshape(1, -1)
-    log_sum = 0.0
+    log_sum = jnp.array(0.0, dtype=theta.dtype)
 
     for v_idx, g_idx, group_names, model in zip(
         visible_indices, group_indices, group_names_list, models_per_group
