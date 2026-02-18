@@ -51,8 +51,14 @@ def rm_cosmo(z, magobs, ref_mag=19.3, package='cosmologix'):
     else:
         raise ValueError('The distance modulus must be calculated using either astropy or cosmologix')
 
+    mask = magobs > 0
+
     # Correct observed magnitudes
-    magobs_corr = magobs - mu_planck18 + ref_mag
+    magobs_corr = jnp.where(
+        mask,
+        magobs - mu_planck18 + ref_mag,
+        0.0
+    )
 
     return mu_planck18, magobs_corr
 
