@@ -26,14 +26,12 @@ def log_group_prior(theta, priors, group_names, group_indices):
     group_names: list of names in this group
     group_indices: list/array of indices in theta corresponding to group_names
     """
-    logp = jnp.array(0.0, dtype=theta.dtype)
+    logp = 0.0
     for idx, name in zip(group_indices, group_names):
         val = theta[idx]
         info = priors[name]
         low, high = info["range"]
         ptype = info["type"]
-        low = jnp.asarray(low, dtype=val.dtype)
-        high = jnp.asarray(high, dtype=val.dtype)
 
         if ptype == "uniform":
             logp_i = jnp.where(
@@ -92,7 +90,7 @@ def log_group_prior(theta, priors, group_names, group_indices):
 
         logp += logp_i
 
-    return jnp.array(logp, dtype=theta.dtype)
+    return logp
 
 
 def inference_loop(initial_state, kernel, num_samples, rng_key):
@@ -138,7 +136,7 @@ def log_prob_fn_groups(
     group_names_list,
 ):
     xi = xi.reshape(1, -1)
-    log_sum = jnp.array(0.0, dtype=theta.dtype)
+    log_sum = 0.0
 
     for v_idx, g_idx, group_names, model in zip(
         visible_indices, group_indices, group_names_list, models_per_group
@@ -154,7 +152,6 @@ def log_prob_fn_groups(
             group_names,
             g_idx
         )
-
 
         log_sum += log_prob
 
