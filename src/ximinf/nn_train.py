@@ -477,6 +477,7 @@ def train_loop(model,
             ax2.legend()
 
             plt.show()
+            plt.close(fig)
 
         if epoch == epochs-1:
             print(f"\n Reached maximum epochs: {epochs} \n")
