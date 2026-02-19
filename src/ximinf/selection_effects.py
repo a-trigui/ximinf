@@ -1,30 +1,29 @@
 import numpy as np
 from scipy.special import expit
 
-def apply_malmquist_bias(results, loc=18.7, scale=4.5, rng=None):
+def apply_malmquist_bias(results, loc=18.8, scale=4.5, rng=None):
     """
-    Apply a stochastic magnitude-limit selection using a sigmoid function
-    instead of a Gaussian threshold.
+    Apply a stochastic magnitude-limit selection using a sigmoid function.
 
     Each SN i is selected with probability:
         P_detect = 1 - expit((mag_i - loc) * scale)
 
-    Rejected SNe are padded to zero.
+    Rejected SNe are removed (no zero padding).
 
     Parameters
     ----------
     results : list of dict
-        Each element is output of `simulate_one` (combined low/high z).
+        Each element is output of `simulate_one`.
     loc : float
-        Sigmoid midpoint (magnitude at ~50% completeness).
+        Sigmoid midpoint.
     scale : float
-        Sigmoid steepness (higher = sharper cut).
+        Sigmoid steepness.
     rng : np.random.Generator, optional
 
     Returns
     -------
     biased_results : list of dict
-        Same structure as input.
+        Same structure as input but containing only detected SNe.
     masks : list of np.ndarray
         Boolean selection masks per simulation.
     """
@@ -39,20 +38,18 @@ def apply_malmquist_bias(results, loc=18.7, scale=4.5, rng=None):
 
         mag = np.asarray(data["magobs"], dtype=np.float32)
 
-        # Probability of detection per SN
+        # Detection probability
         p_detect = 1.0 - expit((mag - loc) * scale)
 
-        # Draw Bernoulli trial for each SN
+        # Bernoulli draw
         mask = rng.uniform(size=mag.shape) < p_detect
         masks.append(mask)
 
-        # Apply mask
+        # Compress directly (no zero padding)
         biased_dict = {}
         for key, values in data.items():
             arr = np.asarray(values)
-            out = np.zeros_like(arr)
-            out[mask] = arr[mask]
-            biased_dict[key] = list(out)
+            biased_dict[key] = list(arr[mask])
 
         biased_results.append(biased_dict)
 
