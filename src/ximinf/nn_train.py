@@ -221,13 +221,28 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
+class Embedding(nnx.Module):
+    def  __init__(self, Nsize, n_params, *, rngs):
+        self.linear1 = nnx.Linear(n_params, Nsize, use_bias=False, rngs=rngs)
+        self.ln1     = nnx.LayerNorm(Nsize, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+
+    def __call__(self, params):
+        e = self.linear1(params)
+        e = self.ln1(e)
+        e = nnx.relu(e)
+
+        e = self.linear2(e)
+
+        return e
+
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, rngs=rngs)
+        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, rngs=rngs)
+        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, rngs=rngs)
 
@@ -255,17 +270,16 @@ class Rho(nnx.Module):
     Neural network module for the Rho network in a Deep Set architecture
     with separate LayerNorm for pooled features and theta.
     """
-    def __init__(self, Nsize_p, Nsize_r, N_size_params, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + N_size_params, Nsize_r, rngs=rngs) #, use_bias=False in case of BatchNorm or SetNorm
+    def __init__(self, Nsize_p, Nsize_r, N_size_e, *, rngs):
+        self.linear1 = nnx.Linear(Nsize_p + N_size_e + 1, Nsize_r, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear4 = nnx.Linear(Nsize_r, 1, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
-        # Concatenate pooled features and embedding
         x = jnp.concatenate([pooled_features, params], axis=-1)
 
         x = self.linear1(x)
@@ -289,7 +303,7 @@ class DeepSetClassifier(nnx.Module):
     """
     Deep Set Classifier model combining Phi and Rho networks.
     """
-    def __init__(self, dropout_rate, Nsize_p, Nsize_r,
+    def __init__(self, dropout_rate, Nsize_p, Nsize_r, Nsize_e,
                  n_cols, n_params, *, rngs):
 
         self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
@@ -297,7 +311,8 @@ class DeepSetClassifier(nnx.Module):
         self.n_params = n_params
 
         self.phi = Phi(Nsize_p, n_cols, n_params, rngs=rngs)
-        self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
+        self.rho = Rho(Nsize_p, Nsize_r, Nsize_e, rngs=rngs)
+        self.embedding = Embedding(Nsize_e, n_params, rngs=rngs)
 
     def __call__(self, input_data):
         # ----------------------------------------------------
@@ -335,10 +350,12 @@ class DeepSetClassifier(nnx.Module):
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         pooled = jnp.sum(h_masked, axis=1) / mask_sum
 
-        # pooled_N = jnp.concatenate([pooled, mask_sum], axis=-1)
+        pooled_N = jnp.concatenate([pooled, mask_sum], axis=-1)
+
+        e = self.embedding(theta)
 
         # Apply Rho
-        return self.rho(self.dropout, pooled, theta)
+        return self.rho(self.dropout, pooled_N, e)
 
 def train_loop(model,
                optimizer,
