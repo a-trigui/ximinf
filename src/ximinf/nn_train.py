@@ -270,8 +270,8 @@ class Rho(nnx.Module):
     Neural network module for the Rho network in a Deep Set architecture
     with separate LayerNorm for pooled features and theta.
     """
-    def __init__(self, Nsize_p, Nsize_r, N_size_e, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + N_size_e + 1, Nsize_r, use_bias=False, rngs=rngs)
+    def __init__(self, Nsize_p, Nsize_r, Nsize_e, *, rngs):
+        self.linear1 = nnx.Linear(Nsize_p + Nsize_e + 1, Nsize_r, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
@@ -350,8 +350,8 @@ class DeepSetClassifier(nnx.Module):
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         pooled = jnp.sum(h_masked, axis=1) / mask_sum
 
-        pooled_N = jnp.concatenate([pooled, mask_sum], axis=-1)
-
+        pooled_N = jnp.concatenate([pooled, mask_sum/4000], axis=-1)
+        
         e = self.embedding(theta)
 
         # Apply Rho
