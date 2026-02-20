@@ -2,10 +2,8 @@
 import skysurvey
 import numpy as np
 from pyDOE import lhs  # LHS sampler
-import ztfidr.simulation as sim
 import skysurvey_sniapop
-from scipy.special import erfinv, erf
-from scipy import stats
+from scipy.special import erfinv, erf, expit
 from astropy.cosmology import Planck18, FlatLambdaCDM
 
 fb = Planck18.Ob0 / Planck18.Om0
@@ -93,7 +91,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, errormodel=sim.noise_model, N=None, i=None):
+def simulate_one(params_dict, z_max, M, cols, errormodel=None, malmquist=None, N=None, i=None):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -186,11 +184,28 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=sim.noise_model, N=None
     )
 
     # Apply noise
-    noisy_snia = snia.apply_gaussian_noise(errormodel)
+    if errormodel == None:
+        df = snia.data
+    else:
+        noisy_snia = snia.apply_gaussian_noise(errormodel)
+        df = noisy_snia.data
 
-    df = noisy_snia.data
+    
 
-    # Collect requested columns as lists
+    # Apply malmquist bias (selection)
+    if malmquist is not None:
+        loc, scale = malmquist
+    
+        mag = np.asarray(df["magobs"], dtype=np.float32)
+    
+        # Detection probability
+        p_detect = 1.0 - expit((mag - loc) * scale)
+    
+        # Bernoulli draw handled by numpy
+        mask = np.random.binomial(1, p_detect).astype(bool)
+    
+        df = df.loc[mask].reset_index(drop=True)
+
+    # Collect columns
     data_dict = {col: list(df[col]) for col in cols if col in df}
-
     return data_dict
