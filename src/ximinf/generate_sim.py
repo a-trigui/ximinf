@@ -77,6 +77,17 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
 
             # Standard exponential inverse CDF
             samples[:, i] = -np.log(1.0 - u) / lam
+
+        elif ptype == 'truncated-exponential':
+            if low != 0:
+                raise ValueError(f"Exponential prior requires low=0, got {low}")
+
+            # Truncate the exponential distribution at `high`
+            lam = -np.log(1.0 - 0.95) / high  # Lambda for 95% mass below `high`
+
+            # Inverse CDF for truncated exponential: F^{-1}(u) = -log(1 - u*(1 - exp(-lam*high))) / lam
+            # This ensures samples are in [0, high]
+            samples[:, i] = -np.log(1.0 - u * (1.0 - np.exp(-lam * high))) / lam
         elif ptype == 'log-uniform':
             if low <= 0:
                 raise ValueError(f"log-uniform prior for '{p}' requires low>0")
