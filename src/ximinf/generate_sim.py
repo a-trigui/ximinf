@@ -159,8 +159,8 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
     if survey is not None:
         cut_loc_key = f"cut_loc_{survey}"
         cut_scale_key = f"cut_scale_{survey}"
-        cut_loc = params.get(cut_loc_key)
-        cut_scale = params.get(cut_scale_key)
+        cut_loc = params[cut_loc_key]
+        cut_scale = params[cut_scale_key]
 
     if "Om0" in params:
         Om0 = params["Om0"]
