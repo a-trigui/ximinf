@@ -91,7 +91,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, errormodel=None, malmquist=None, N=None, i=None):
+def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, survey=None):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -105,10 +105,14 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, malmquist=None, N
         Number of SNe to simulate.
     cols : list of str
         List of columns to include in the output.
+    errormodel : dict, optional
+        Error model to apply to the simulated data.
     N : int, optional
         Total number of simulations (for progress printing).
     i : int, optional
         Current simulation index (for progress printing).
+    survey : str, optional
+        Name of the survey (e.g., 'ztf', 'snls') to apply the corresponding selection function.
 
     Returns
     -------
@@ -129,7 +133,8 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, malmquist=None, N
         "mabs": -19.3,
         "gamma": 0.0,
         "sigma_int": 0.0,  # default intrinsic scatter
-        "x1_ref": -0.5
+        "x1_ref": -0.5,
+        "Om0": None,
     }
 
     # Merge defaults with provided params (params_dict takes priority)
@@ -149,16 +154,22 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, malmquist=None, N
     sigma_int_ = float(params["sigma_int"])
     x1_ref_ = float(params["x1_ref"])
 
+    # Set survey-specific selection parameters
+    cut_loc, cut_scale = None, None
+    if survey is not None:
+        cut_loc_key = f"cut_loc_{survey}"
+        cut_scale_key = f"cut_scale_{survey}"
+        cut_loc = params.get(cut_loc_key)
+        cut_scale = params.get(cut_scale_key)
+
     if "Om0" in params:
         Om0 = params["Om0"]
         Ob0 = fb * Om0
-
         cosmo = FlatLambdaCDM(
             **(Planck18.parameters | {"Om0": Om0, "Ob0": Ob0})
         )
-        # cosmo = FlatLambdaCDM(**(Planck18.parameters | {"Om0":params["Om0"]}))    
     else:
-        cosmo = FlatLambdaCDM(**(Planck18.parameters))      
+        cosmo = FlatLambdaCDM(**(Planck18.parameters))
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
@@ -184,26 +195,22 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, malmquist=None, N
     )
 
     # Apply noise
-    if errormodel == None:
+    if errormodel is None:
         df = snia.data
     else:
         noisy_snia = snia.apply_gaussian_noise(errormodel)
         df = noisy_snia.data
 
-    
-
-    # Apply malmquist bias (selection)
-    if malmquist is not None:
-        loc, scale = malmquist
-    
+    # Apply malmquist bias (selection) if survey-specific parameters are provided
+    if cut_loc is not None and cut_scale is not None:
         mag = np.asarray(df["magobs"], dtype=np.float32)
-    
+
         # Detection probability
-        p_detect = 1.0 - expit((mag - loc) * scale)
-    
+        p_detect = 1.0 - expit((mag - cut_loc) * cut_scale)
+
         # Bernoulli draw handled by numpy
         mask = np.random.binomial(1, p_detect).astype(bool)
-    
+
         df = df.loc[mask].reset_index(drop=True)
 
     # Collect columns
