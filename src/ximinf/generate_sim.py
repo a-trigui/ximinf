@@ -1,10 +1,13 @@
 # Simulation libraries
 import skysurvey
+import sncosmo
+from astropy.table import Table
 import numpy as np
 from pyDOE import lhs  # LHS sampler
 import skysurvey_sniapop
 from scipy.special import erfinv, erf, expit
 from astropy.cosmology import Planck18, FlatLambdaCDM
+survey = skysurvey.survey.ZTF.from_logs()
 
 fb = Planck18.Ob0 / Planck18.Om0
 
@@ -102,7 +105,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, survey=None):
+def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, survey_name=None, lightcurve=False):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -145,7 +148,6 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
         "gamma": 0.0,
         "sigma_int": 0.0,  # default intrinsic scatter
         "x1_ref": -0.5,
-        "Om0": None,
     }
 
     # Merge defaults with provided params (params_dict takes priority)
@@ -167,9 +169,9 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
 
     # Set survey-specific selection parameters
     cut_loc, cut_scale = None, None
-    if survey is not None:
-        cut_loc_key = f"cut_loc_{survey}"
-        cut_scale_key = f"cut_scale_{survey}"
+    if survey_name is not None:
+        cut_loc_key = f"cut_loc_{survey_name}"
+        cut_scale_key = f"cut_scale_{survey_name}"
         cut_loc = params[cut_loc_key]
         cut_scale = params[cut_scale_key]
 
@@ -186,6 +188,8 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
 
     # Generate SNe sample
     snia = skysurvey.SNeIa.from_draw(
+        # tstart=survey.date_range[0],
+        # tstop=survey.date_range[1],
         size=M,
         zmax=z_max,
         model=brokenalpha_model,
@@ -204,6 +208,56 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
             'cosmology': cosmo
         }
     )
+
+    # if lightcurve==True:
+    #     dset = skysurvey.dataset.DataSet.from_targets_and_survey(snia, survey, phase_range=[-20, 60])
+    #     ndetection = dset.get_ndetection()
+    #     detected_indexes = ndetection[ndetection >= 7].index
+    #     detected_sne_data = dset.data.loc[detected_indexes]
+    #     detected_sne_data['zpsys'] = 'ab'
+    #     grouped = detected_sne_data.groupby(level=0)
+
+    #     results = {}
+    #     fitted_models = {}
+
+    #     # Loop over each supernova
+    #     for sn_id, sn_data in grouped:
+    #         print(f'sn_id : {sn_id}', end='\r')
+    #         # Rename columns to match sncosmo's expectations
+    #         sncosmo_data = sn_data.rename(columns={
+    #             'mjd': 'time',
+    #             'flux': 'flux',
+    #             'fluxerr': 'fluxerr',
+    #             'zp': 'zp',
+    #             'band': 'band'
+    #         })
+
+    #         # sncosmo_data['zpsys'] = 'ab'
+
+    #         # Convert to astropy.table.Table
+    #         sncosmo_table = Table.from_pandas(sncosmo_data)
+
+    #         row = data.iloc[sn_id]
+
+    #         model = sncosmo.Model(source='salt2')
+
+    #         # Set the model redshift to the known value
+    #         model.set(z=row['z'])  # fix redshift from your row datafra
+
+    #         # Fit the light curve
+    #         try:
+    #             result, fitted_model = sncosmo.fit_lc(
+    #                 sncosmo_table,
+    #                 model,
+    #                 vparam_names=['t0', 'x0', 'x1', 'c'],
+    #                 guess_z=False,
+    #                 minsnr=5.0
+    #             )
+    #             results[sn_id] = result
+    #             fitted_models[sn_id] = fitted_model
+    #         except Exception as e:
+    #             print(f"Failed to fit supernova {sn_id}: {e}")
+    #             results[sn_id] = None
 
     # Apply noise
     if errormodel is None:
