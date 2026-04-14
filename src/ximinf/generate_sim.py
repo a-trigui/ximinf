@@ -1,13 +1,22 @@
 # Simulation libraries
 import skysurvey
-import sncosmo
-from astropy.table import Table
+# import sncosmo
+# from astropy.table import Table
 import numpy as np
 from pyDOE import lhs  # LHS sampler
 import skysurvey_sniapop
 from scipy.special import erfinv, erf, expit
 from astropy.cosmology import Planck18, FlatLambdaCDM
-# survey = skysurvey.survey.ZTF.from_logs()
+# import pandas as pd
+# import os
+
+# ztf_logs_path = 'data/ztf_logs.parquet'
+# if os.path.exists(ztf_logs_path):
+#     log_data = pd.read_parquet(ztf_logs_path)
+# else:
+#     survey = skysurvey.survey.ZTF.from_logs()
+
+
 
 fb = Planck18.Ob0 / Planck18.Om0
 
