@@ -465,14 +465,14 @@ def train_loop(model,
 
             # Loss subplot
             ax1.set_title(f'Loss for M:{M} and N:{N} with patience:{patience}')
-            for dataset in ('train', 'test'):
+            for dataset in ('train', 'val'):
                 ax1.plot(metrics_history[f'{dataset}_loss'], label=f'{dataset}_loss')
             ax1.legend()
             ax1.set_yscale("log")
 
             # Accuracy subplot
             ax2.set_title('Accuracy')
-            for dataset in ('train', 'test'):
+            for dataset in ('train', 'val'):
                 ax2.plot(metrics_history[f'{dataset}_accuracy'], label=f'{dataset}_accuracy')
             ax2.legend()
 

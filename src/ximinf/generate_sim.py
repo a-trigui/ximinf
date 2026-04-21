@@ -218,56 +218,6 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
         }
     )
 
-    # if lightcurve==True:
-    #     dset = skysurvey.dataset.DataSet.from_targets_and_survey(snia, survey, phase_range=[-20, 60])
-    #     ndetection = dset.get_ndetection()
-    #     detected_indexes = ndetection[ndetection >= 7].index
-    #     detected_sne_data = dset.data.loc[detected_indexes]
-    #     detected_sne_data['zpsys'] = 'ab'
-    #     grouped = detected_sne_data.groupby(level=0)
-
-    #     results = {}
-    #     fitted_models = {}
-
-    #     # Loop over each supernova
-    #     for sn_id, sn_data in grouped:
-    #         print(f'sn_id : {sn_id}', end='\r')
-    #         # Rename columns to match sncosmo's expectations
-    #         sncosmo_data = sn_data.rename(columns={
-    #             'mjd': 'time',
-    #             'flux': 'flux',
-    #             'fluxerr': 'fluxerr',
-    #             'zp': 'zp',
-    #             'band': 'band'
-    #         })
-
-    #         # sncosmo_data['zpsys'] = 'ab'
-
-    #         # Convert to astropy.table.Table
-    #         sncosmo_table = Table.from_pandas(sncosmo_data)
-
-    #         row = data.iloc[sn_id]
-
-    #         model = sncosmo.Model(source='salt2')
-
-    #         # Set the model redshift to the known value
-    #         model.set(z=row['z'])  # fix redshift from your row datafra
-
-    #         # Fit the light curve
-    #         try:
-    #             result, fitted_model = sncosmo.fit_lc(
-    #                 sncosmo_table,
-    #                 model,
-    #                 vparam_names=['t0', 'x0', 'x1', 'c'],
-    #                 guess_z=False,
-    #                 minsnr=5.0
-    #             )
-    #             results[sn_id] = result
-    #             fitted_models[sn_id] = fitted_model
-    #         except Exception as e:
-    #             print(f"Failed to fit supernova {sn_id}: {e}")
-    #             results[sn_id] = None
-
     # Apply noise
     if errormodel is None:
         df = snia.data
@@ -290,3 +240,53 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
     # Collect columns
     data_dict = {col: list(df[col]) for col in cols if col in df}
     return data_dict
+
+# if lightcurve==True:
+#     dset = skysurvey.dataset.DataSet.from_targets_and_survey(snia, survey, phase_range=[-20, 60])
+#     ndetection = dset.get_ndetection()
+#     detected_indexes = ndetection[ndetection >= 7].index
+#     detected_sne_data = dset.data.loc[detected_indexes]
+#     detected_sne_data['zpsys'] = 'ab'
+#     grouped = detected_sne_data.groupby(level=0)
+
+#     results = {}
+#     fitted_models = {}
+
+#     # Loop over each supernova
+#     for sn_id, sn_data in grouped:
+#         print(f'sn_id : {sn_id}', end='\r')
+#         # Rename columns to match sncosmo's expectations
+#         sncosmo_data = sn_data.rename(columns={
+#             'mjd': 'time',
+#             'flux': 'flux',
+#             'fluxerr': 'fluxerr',
+#             'zp': 'zp',
+#             'band': 'band'
+#         })
+
+#         # sncosmo_data['zpsys'] = 'ab'
+
+#         # Convert to astropy.table.Table
+#         sncosmo_table = Table.from_pandas(sncosmo_data)
+
+#         row = data.iloc[sn_id]
+
+#         model = sncosmo.Model(source='salt2')
+
+#         # Set the model redshift to the known value
+#         model.set(z=row['z'])  # fix redshift from your row datafra
+
+#         # Fit the light curve
+#         try:
+#             result, fitted_model = sncosmo.fit_lc(
+#                 sncosmo_table,
+#                 model,
+#                 vparam_names=['t0', 'x0', 'x1', 'c'],
+#                 guess_z=False,
+#                 minsnr=5.0
+#             )
+#             results[sn_id] = result
+#             fitted_models[sn_id] = fitted_model
+#         except Exception as e:
+#             print(f"Failed to fit supernova {sn_id}: {e}")
+#             results[sn_id] = None

@@ -15,7 +15,7 @@ author = 'Adam Trigui'
 try:
     release = importlib.metadata.version("ximinf")  # Get version from package
 except importlib.metadata.PackageNotFoundError:
-    release = "0.0.98" # Fallback version if package not found
+    release = "0.0.99" # Fallback version if package not found
 
 # Short X.Y version
 version = ".".join(release.split(".")[:2])
