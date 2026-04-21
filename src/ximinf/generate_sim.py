@@ -7,6 +7,7 @@ from pyDOE import lhs  # LHS sampler
 import skysurvey_sniapop
 from scipy.special import erfinv, erf, expit
 from astropy.cosmology import Planck18, FlatLambdaCDM
+from modeldag.tools import apply_gaussian_noise
 # import pandas as pd
 # import os
 
@@ -114,7 +115,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, survey_name=None, lightcurve=False):
+def simulate_one(params_dict, z_max, M, cols, errormodel=None, rng=None, N=None, i=None, survey_name=None, lightcurve=False):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -222,8 +223,10 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
     if errormodel is None:
         df = snia.data
     else:
-        noisy_snia = snia.apply_gaussian_noise(errormodel)
-        df = noisy_snia.data
+        if rng is None:
+            rng = np.random.default_rng()
+        noisy_snia = apply_gaussian_noise(errormodel, snia.data, rng=rng)
+        df = noisy_snia
 
     # Apply malmquist bias (selection) if survey-specific parameters are provided
     if cut_loc is not None and cut_scale is not None:
@@ -240,6 +243,10 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, N=None, i=None, s
     # Collect columns
     data_dict = {col: list(df[col]) for col in cols if col in df}
     return data_dict
+
+
+
+
 
 # if lightcurve==True:
 #     dset = skysurvey.dataset.DataSet.from_targets_and_survey(snia, survey, phase_range=[-20, 60])
