@@ -225,7 +225,7 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, rng=None, N=None,
     else:
         if rng is None:
             rng = np.random.default_rng()
-        noisy_snia = apply_gaussian_noise(errormodel, snia.data, rng=rng)
+        noisy_snia = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
         df = noisy_snia
 
     # Apply malmquist bias (selection) if survey-specific parameters are provided
