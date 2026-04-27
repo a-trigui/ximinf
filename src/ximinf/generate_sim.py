@@ -21,6 +21,9 @@ from modeldag.tools import apply_gaussian_noise
 
 fb = Planck18.Ob0 / Planck18.Om0
 
+def get_strect_mode_simple(x1, x1ref):
+    return x1>x1ref
+
 def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     """
     Generate sampled parameter sets using Latin Hypercube Sampling (LHS),
@@ -115,7 +118,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, rng=None, N=None, i=None, survey_name=None, lightcurve=False):
+def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, rng=None, simple_broken = False, N=None, i=None, survey_name=None, lightcurve=False):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -184,6 +187,9 @@ def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, r
         cosmo = FlatLambdaCDM(**(Planck18.parameters))
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
+
+    if simple_broken == True:
+        brokenalpha_model['x1mode'] = {'func': get_strect_mode_simple, 'kwargs': {'x1': '@x1', 'x1ref': '@x1ref'}}
 
     # Generate SNe sample
     snia = skysurvey.SNeIa.from_draw(
