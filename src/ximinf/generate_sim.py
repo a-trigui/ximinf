@@ -1,5 +1,6 @@
 # Simulation libraries
 import skysurvey
+from skysurvey.target.snia import SNeIaStretch
 # import sncosmo
 # from astropy.table import Table
 import numpy as np
@@ -189,30 +190,53 @@ def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, r
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
     if simple_broken == True:
-        brokenalpha_model['x1mode'] = {'func': get_strect_mode_simple, 'kwargs': {'x1': '@x1', 'x1ref': '@x1ref'}}
+        brokenalpha_model['x1'] = {'func': SNeIaStretch.nicolas2021}
+        brokenalpha_model['x1mode'] = {'func': get_strect_mode_simple, 'kwargs': {'x1': '@x1', 'x1ref': x1_ref_}}
 
-    # Generate SNe sample
-    snia = skysurvey.SNeIa.from_draw(
-        # tstart=survey.date_range[0],
-        # tstop=survey.date_range[1],
-        size=M,
-        zmax=z_max,
-        model=brokenalpha_model,
-        magabs={
-            "x1": "@x1",
-            "c": "@c",
-            "mabs": mabs_,
-            "sigmaint": sigma_int_,
-            "alpha_low": alpha_low_,
-            "alpha_high": alpha_high_,
-            "beta": beta_,
-            "gamma": gamma_,
-            "x1ref": x1_ref_
-        },
-        magobs={
-            'cosmology': cosmo
-        }
-    )
+        # Generate SNe sample
+        snia = skysurvey.SNeIa.from_draw(
+            # tstart=survey.date_range[0],
+            # tstop=survey.date_range[1],
+            size=M,
+            zmax=z_max,
+            model=brokenalpha_model,
+            magabs={
+                "x1": "@x1",
+                "c": "@c",
+                "mabs": mabs_,
+                "sigmaint": sigma_int_,
+                "alpha_low": alpha_low_,
+                "alpha_high": alpha_high_,
+                "beta": beta_,
+                "gamma": gamma_,
+            },
+            magobs={
+                'cosmology': cosmo
+            }
+        )
+    else:
+        # Generate SNe sample
+        snia = skysurvey.SNeIa.from_draw(
+            # tstart=survey.date_range[0],
+            # tstop=survey.date_range[1],
+            size=M,
+            zmax=z_max,
+            model=brokenalpha_model,
+            magabs={
+                "x1": "@x1",
+                "c": "@c",
+                "mabs": mabs_,
+                "sigmaint": sigma_int_,
+                "alpha_low": alpha_low_,
+                "alpha_high": alpha_high_,
+                "beta": beta_,
+                "gamma": gamma_,
+                "x1ref": x1_ref_
+            },
+            magobs={
+                'cosmology': cosmo
+            }
+        )
 
     # Apply noise
     if errormodel is None:
