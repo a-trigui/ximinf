@@ -115,7 +115,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, errormodel=None, rng=None, N=None, i=None, survey_name=None, lightcurve=False):
+def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, rng=None, N=None, i=None, survey_name=None, lightcurve=False):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -148,17 +148,6 @@ def simulate_one(params_dict, z_max, M, cols, errormodel=None, rng=None, N=None,
     if N is not None and i is not None:
         if (i+1) % max(1, N//10) == 0 or i == N-1:
             print(f"Simulation {i+1}/{N}", end="\r", flush=True)
-
-    # Define default parameters including sigma_int
-    default_params = {
-        "alpha_low": 0.0,
-        "alpha_high": 0.0,
-        "beta": 0.0,
-        "mabs": -19.3,
-        "gamma": 0.0,
-        "sigma_int": 0.0,  # default intrinsic scatter
-        "x1_ref": -0.5,
-    }
 
     # Merge defaults with provided params (params_dict takes priority)
     params = {**default_params, **params_dict}
