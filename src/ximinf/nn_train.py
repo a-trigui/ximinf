@@ -221,21 +221,6 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
-class Embedding(nnx.Module):
-    def  __init__(self, Nsize, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_params, Nsize, use_bias=False, rngs=rngs)
-        self.ln1     = nnx.LayerNorm(Nsize, rngs=rngs)
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
-
-    def __call__(self, params):
-        e = self.linear1(params)
-        e = self.ln1(e)
-        e = nnx.relu(e)
-
-        e = self.linear2(e)
-
-        return e
-
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
         self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs)
@@ -311,8 +296,8 @@ class DeepSetClassifier(nnx.Module):
         self.n_params = n_params
 
         self.phi = Phi(Nsize_p, n_cols, n_params, rngs=rngs)
-        self.rho = Rho(Nsize_p, Nsize_r, Nsize_e, rngs=rngs)
-        self.embedding = Embedding(Nsize_e, n_params, rngs=rngs)
+        self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
+        # self.embedding = Embedding(Nsize_e, n_params, rngs=rngs)
 
     def __call__(self, input_data):
         # ----------------------------------------------------
@@ -352,10 +337,10 @@ class DeepSetClassifier(nnx.Module):
 
         pooled_N = jnp.concatenate([pooled, mask_sum/4000], axis=-1)
         
-        e = self.embedding(theta)
+        # e = self.embedding(theta)
 
         # Apply Rho
-        return self.rho(self.dropout, pooled_N, e)
+        return self.rho(self.dropout, pooled_N, theta)
 
 def train_loop(model,
                optimizer,
