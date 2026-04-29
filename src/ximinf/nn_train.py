@@ -223,7 +223,7 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) # + n_params
+        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs) # 
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
@@ -231,20 +231,20 @@ class Phi(nnx.Module):
         self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, data): #, params
-        h = data #jnp.concatenate([data, params], axis=-1)
+    def __call__(self, data, params):
+        h = jnp.concatenate([data, params], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
-        h = nnx.relu(h)
+        h = nnx.leaky_relu(h)
 
         h = self.linear2(h)
         h = self.ln2(h)
-        h = nnx.relu(h)
+        h = nnx.leaky_relu(h)
 
         h = self.linear3(h)
         h = self.ln3(h)
-        h = nnx.relu(h)
+        h = nnx.leaky_relu(h)
 
         h = self.linear4(h)
 
@@ -269,17 +269,17 @@ class Rho(nnx.Module):
 
         x = self.linear1(x)
         x = self.ln1(x)
-        x = nnx.relu(x)
+        x = nnx.leaky_relu(x)
         x = dropout(x)
 
         x = self.linear2(x)
         x = self.ln2(x)
-        x = nnx.relu(x)
+        x = nnx.leaky_relu(x)
         x = dropout(x)
 
         x = self.linear3(x)
         x = self.ln3(x)
-        x = nnx.relu(x)
+        x = nnx.leaky_relu(x)
         x = dropout(x)
 
         return self.linear4(x)
@@ -297,7 +297,6 @@ class DeepSetClassifier(nnx.Module):
 
         self.phi = Phi(Nsize_p, n_cols, n_params, rngs=rngs)
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
-        # self.embedding = Embedding(Nsize_e, n_params, rngs=rngs)
 
     def __call__(self, input_data):
         # ----------------------------------------------------
@@ -322,10 +321,10 @@ class DeepSetClassifier(nnx.Module):
         # Parameters
         theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
-        # theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
 
         # Apply Phi
-        h = self.phi(data) #, theta_fill
+        h = self.phi(data, theta_fill)
 
         # Apply mask
         h_masked = h * mask[..., None]
@@ -336,8 +335,6 @@ class DeepSetClassifier(nnx.Module):
         pooled = jnp.sum(h_masked, axis=1) / mask_sum
 
         pooled_N = jnp.concatenate([pooled, mask_sum/4000], axis=-1)
-        
-        # e = self.embedding(theta)
 
         # Apply Rho
         return self.rho(self.dropout, pooled_N, theta)
