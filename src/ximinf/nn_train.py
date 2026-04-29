@@ -236,17 +236,17 @@ class Phi(nnx.Module):
 
         h = self.linear1(h)
         h = self.ln1(h)
-        h = nnx.relu(h)
+        h = nnx.gelu(h)
         h = dropout(h)
 
         h = self.linear2(h)
         h = self.ln2(h)
-        h = nnx.relu(h)
+        h = nnx.gelu(h)
         h = dropout(h)
 
         h = self.linear3(h)
         h = self.ln3(h)
-        h = nnx.relu(h)
+        h = nnx.gelu(h)
         h = dropout(h)
 
         h = self.linear4(h)
@@ -272,17 +272,17 @@ class Rho(nnx.Module):
 
         x = self.linear1(x)
         x = self.ln1(x)
-        x = nnx.relu(x)
+        x = nnx.gelu(x)
         x = dropout(x)
 
         x = self.linear2(x)
         x = self.ln2(x)
-        x = nnx.relu(x)
+        x = nnx.gelu(x)
         x = dropout(x)
 
         x = self.linear3(x)
         x = self.ln3(x)
-        x = nnx.relu(x)
+        x = nnx.gelu(x)
         x = dropout(x)
 
         return self.linear4(x)
