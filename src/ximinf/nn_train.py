@@ -223,48 +223,32 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs) # 
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-
-        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
-        self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-
+        # self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
+        # self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, data, params):
         h = jnp.concatenate([data, params], axis=-1)
 
-        # -------------------------
-        # First layer (no residual, shape change)
-        # -------------------------
         h = self.linear1(h)
-        h = nnx.gelu(self.ln1(h))
-        h = dropout(h)
-
-        # -------------------------
-        # Residual block 1 (pre-norm)
-        # -------------------------
-        h_res = h
-        h = self.linear2(self.ln2(h))
+        h = self.ln1(h)
         h = nnx.gelu(h)
         h = dropout(h)
-        h = h + h_res
 
-        # -------------------------
-        # Residual block 2 (pre-norm)
-        # -------------------------
-        h_res = h
-        h = self.linear3(self.ln3(h))
+        h = self.linear2(h)
+        h = self.ln2(h)
         h = nnx.gelu(h)
         h = dropout(h)
-        h = h + h_res
 
-        # -------------------------
-        # Final projection
-        # -------------------------
+        # h = self.linear3(h)
+        # h = self.ln3(h)
+        # h = nnx.gelu(h)
+        # h = dropout(h)
+
         h = self.linear4(h)
 
         return h
@@ -279,8 +263,8 @@ class Rho(nnx.Module):
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
-        self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
+        # self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear4 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
@@ -296,10 +280,10 @@ class Rho(nnx.Module):
         x = nnx.gelu(x)
         x = dropout(x)
 
-        x = self.linear3(x)
-        x = self.ln3(x)
-        x = nnx.gelu(x)
-        x = dropout(x)
+        # x = self.linear3(x)
+        # x = self.ln3(x)
+        # x = nnx.gelu(x)
+        # x = dropout(x)
 
         return self.linear4(x)
 
@@ -307,7 +291,7 @@ class DeepSetClassifier(nnx.Module):
     """
     Deep Set Classifier model combining Phi and Rho networks.
     """
-    def __init__(self, phi_drop_rate, rho_drop_rate, Nsize_p, Nsize_r, Nsize_e,
+    def __init__(self, phi_drop_rate, rho_drop_rate, Nsize_p, Nsize_r,
                  n_cols, n_params, *, rngs):
         
         self.dropout_phi = nnx.Dropout(rate=phi_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
