@@ -223,32 +223,48 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs) # 
+        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+
         self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+
         self.linear4 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, data, params):
         h = jnp.concatenate([data, params], axis=-1)
 
+        # -------------------------
+        # First layer (no residual, shape change)
+        # -------------------------
         h = self.linear1(h)
-        h = self.ln1(h)
-        h = nnx.gelu(h)
+        h = nnx.gelu(self.ln1(h))
         h = dropout(h)
 
-        h = self.linear2(h)
-        h = self.ln2(h)
+        # -------------------------
+        # Residual block 1 (pre-norm)
+        # -------------------------
+        h_res = h
+        h = self.linear2(self.ln2(h))
         h = nnx.gelu(h)
         h = dropout(h)
+        h = h + h_res
 
-        h = self.linear3(h)
-        h = self.ln3(h)
+        # -------------------------
+        # Residual block 2 (pre-norm)
+        # -------------------------
+        h_res = h
+        h = self.linear3(self.ln3(h))
         h = nnx.gelu(h)
         h = dropout(h)
+        h = h + h_res
 
+        # -------------------------
+        # Final projection
+        # -------------------------
         h = self.linear4(h)
 
         return h
