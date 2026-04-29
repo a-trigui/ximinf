@@ -223,7 +223,7 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) # + n_params
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
@@ -231,8 +231,8 @@ class Phi(nnx.Module):
         self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, data, params):
-        h = jnp.concatenate([data, params], axis=-1)
+    def __call__(self, data): #, params
+        h = data #jnp.concatenate([data, params], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -322,10 +322,10 @@ class DeepSetClassifier(nnx.Module):
         # Parameters
         theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
-        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+        # theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
 
         # Apply Phi
-        h = self.phi(data, theta_fill)
+        h = self.phi(data) #, theta_fill
 
         # Apply mask
         h_masked = h * mask[..., None]
