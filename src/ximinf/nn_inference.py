@@ -112,7 +112,8 @@ def load_autoregressive_nn(path):
         # Recreate abstract model (shape-only)
         abstract_model = nnx.eval_shape(
             lambda: nntr.DeepSetClassifier(
-                dropout_rate=0.0,
+                phi_drop_rate=0.0,
+                rho_drop_rate=0.0,
                 Nsize_p=shared["Nsize_p"],
                 Nsize_r=shared["Nsize_r"],
                 Nsize_e=shared["Nsize_e"],
