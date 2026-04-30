@@ -223,7 +223,7 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols + n_params, 2*Nsize, use_bias=False, rngs=rngs) # 
+        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) #  + n_params
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
@@ -231,8 +231,8 @@ class Phi(nnx.Module):
         # self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear4 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, dropout, data, params):
-        h = jnp.concatenate([data, params], axis=-1)
+    def __call__(self, dropout, data): #, params
+        h = data #jnp.concatenate([data, params], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -259,7 +259,7 @@ class Rho(nnx.Module):
     with separate LayerNorm for pooled features and theta.
     """
     def __init__(self, Nsize_p, Nsize_r, Nsize_e, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + Nsize_e + 1, Nsize_r, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear(Nsize_p + Nsize_e, Nsize_r, use_bias=False, rngs=rngs)
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
@@ -325,18 +325,35 @@ class DeepSetClassifier(nnx.Module):
         # Parameters
         theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
-        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+        # theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
 
         # Apply Phi
-        h = self.phi(self.dropout_phi, data, theta_fill)
+        h = self.phi(self.dropout_phi, data) #, theta_fill
+
+        weights = h[..., -1]   # (N, M)
+        features = h[..., :-1] # (N, M, D-1)
 
         # Apply mask
         h_masked = h * mask[..., None]
 
+        weights = h_masked[..., -1]
+
+        weights = nnx.softplus(weights) * mask
+
+        weight_sum = jnp.sum(weights, axis=1, keepdims=True)
+        weight_sum = jnp.where(weight_sum == 0, 1.0, weight_sum)
+        
+        pooled = jnp.sum(weights[..., None] * features, axis=1) / weight_sum
+        
         # Pool (masked average)
+        # mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
-        pooled = jnp.sum(h_masked, axis=1) / mask_sum
+    
+    
+        # pooled = jnp.sum(h_masked, axis=1) / mask_sum
+
+        # pooled = jnp.sum(weights[..., None]*h_masked, axis=1) / mask_sum
 
         pooled_N = jnp.concatenate([pooled, mask_sum/4000], axis=-1)
 
