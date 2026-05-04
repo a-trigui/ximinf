@@ -84,46 +84,6 @@ def unnormalize(normed_params, param_stats):
             unnormed[k] = v  # leave untouched
     return unnormed
 
-# Jax train-test split 
-def train_test_split_jax(X, y, test_size=0.3, shuffle=False, key=None):
-    """
-    Split arrays into random train and test subsets using JAX.
-
-    Parameters
-    ----------
-    X : jax.numpy.ndarray
-        Input features of shape (N, ...).
-    y : jax.numpy.ndarray
-        Corresponding labels of shape (N, ...).
-    test_size : float, optional
-        Fraction of the dataset to use as test data (default is 0.25).
-    shuffle : bool, optional
-        Whether to shuffle the data before splitting (default is False).
-    key : jax.random.PRNGKey, optional
-        Random key used for shuffling (required if shuffle=True).
-
-    Returns
-    -------
-    X_train : jax.numpy.ndarray
-        Training subset of inputs.
-    X_test : jax.numpy.ndarray
-        Test subset of inputs.
-    y_train : jax.numpy.ndarray
-        Training subset of labels.
-    y_test : jax.numpy.ndarray
-        Test subset of labels.
-    """
-
-    N = X.shape[0]
-    N_test = int(jnp.floor(test_size * N))
-    N_train= N - N_test
-
-    if shuffle:
-        perm = jax.random.permutation(key, N)
-        X, y = X[perm], y[perm]
-
-    return X[:N_train], X[N_train:], y[:N_train], y[N_train:]
-
 @nnx.jit
 def loss_fn(model, batch):
     """
@@ -221,18 +181,46 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
+# class Weights(nnx.Module):
+#     def __init__(self, Nsize, n_cols_err, *, rngs):
+#         self.linear1 = nnx.Linear(n_cols_err, 2*Nsize, use_bias=False, rngs=rngs) # + n_params #False
+#         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+#         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs) #False
+#         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+#         self.linear3 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
+
+#     def __call__(self, dropout, data_err): #, params
+#         w = data_err
+
+#         w = self.linear1(w)
+#         w = self.ln1(w)
+#         w = nnx.gelu(w)
+#         w = dropout(w)
+
+#         w = self.linear2(w)
+#         w = self.ln2(w)
+#         w = nnx.gelu(w)
+#         w = dropout(w)
+
+#         w = self.linear3(w)
+
+#         return nnx.softplus(w)
+
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols, n_params, *, rngs):
-        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) #  + n_params
+        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) # + n_params #False
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
+        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs) #False
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         # self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         # self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        self.linear4 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
+        # self.linear4 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
+        # self.ln4     = nnx.LayerNorm(2*Nsize, rngs=rngs)
+        self.linear5 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, data): #, params
-        h = data #jnp.concatenate([data, params], axis=-1)
+        h = data
+        # h = jnp.concatenate([data, params], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -249,7 +237,12 @@ class Phi(nnx.Module):
         # h = nnx.gelu(h)
         # h = dropout(h)
 
-        h = self.linear4(h)
+        # h = self.linear4(h)
+        # h = self.ln4(h)
+        # h = nnx.gelu(h)
+        # h = dropout(h)
+
+        h = self.linear5(h)
 
         return h
 
@@ -259,13 +252,15 @@ class Rho(nnx.Module):
     with separate LayerNorm for pooled features and theta.
     """
     def __init__(self, Nsize_p, Nsize_r, Nsize_e, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + Nsize_e, Nsize_r, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear((Nsize_p-1) + Nsize_e + 1, Nsize_r, use_bias=False, rngs=rngs) #False #2*(Nsize_p-1)
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs) #False
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         # self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        self.linear4 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
+        # self.linear4 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
+        # self.ln4     = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
         x = jnp.concatenate([pooled_features, params], axis=-1)
@@ -285,7 +280,12 @@ class Rho(nnx.Module):
         # x = nnx.gelu(x)
         # x = dropout(x)
 
-        return self.linear4(x)
+        # x = self.linear4(x)
+        # x = self.ln4(x)
+        # x = nnx.gelu(x)
+        # x = dropout(x)
+
+        return self.linear5(x)
 
 class DeepSetClassifier(nnx.Module):
     """
@@ -301,6 +301,7 @@ class DeepSetClassifier(nnx.Module):
 
         self.phi = Phi(Nsize_p, n_cols, n_params, rngs=rngs)
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
+        # self.weights = Weights(Nsize_p, n_cols_err,)
 
     def __call__(self, input_data):
         # ----------------------------------------------------
@@ -319,6 +320,12 @@ class DeepSetClassifier(nnx.Module):
         # Reshape data columns
         data = input_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
 
+        # val_idx = jnp.array([0, 2, 4, 6, 7])   # magobs, c, x1, prompt, z
+        # err_idx = jnp.array([1, 3, 5])         # magobs_err, c_err, x1_err
+
+        # values = data[..., val_idx]
+        # errors = data[..., err_idx]
+
         # Slice mask (last M columns)
         mask = input_data[:, -M-self.n_params:-self.n_params]         # shape (N, M)
 
@@ -327,6 +334,9 @@ class DeepSetClassifier(nnx.Module):
 
         # theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
 
+        # features = self.phi(self.dropout_phi, values)
+        # weights  = self.weight_net(errors)
+        
         # Apply Phi
         h = self.phi(self.dropout_phi, data) #, theta_fill
 
@@ -334,28 +344,26 @@ class DeepSetClassifier(nnx.Module):
         features = h[..., :-1] # (N, M, D-1)
 
         # Apply mask
-        h_masked = h * mask[..., None]
+        features = features * mask[..., None]
+        weights  = weights * mask
 
-        weights = h_masked[..., -1]
-
-        weights = nnx.softplus(weights) * mask
+        weights = nnx.softplus(weights)
 
         weight_sum = jnp.sum(weights, axis=1, keepdims=True)
         weight_sum = jnp.where(weight_sum == 0, 1.0, weight_sum)
         
-        pooled = jnp.sum(weights[..., None] * features, axis=1) / weight_sum
+        pooled_mean = jnp.sum(weights[..., None] * features, axis=1) / weight_sum
+        
+        # diff = features - pooled_mean[:, None, :]
+        # pooled_var = jnp.sum(weights[..., None] * diff**2, axis=1) / weight_sum
+
+        # pooling = jnp.concatenate([pooled_mean, pooled_var], axis=-1)
         
         # Pool (masked average)
-        # mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
-        mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
-    
-    
-        # pooled = jnp.sum(h_masked, axis=1) / mask_sum
+        mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum) #To avoid having zero
 
-        # pooled = jnp.sum(weights[..., None]*h_masked, axis=1) / mask_sum
-
-        pooled_N = jnp.concatenate([pooled, mask_sum/4000], axis=-1)
+        pooled_N = jnp.concatenate([pooled_mean, jnp.log(mask_sum)], axis=-1)
 
         # Apply Rho
         return self.rho(self.dropout_rho, pooled_N, theta)
