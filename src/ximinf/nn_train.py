@@ -183,14 +183,14 @@ def pred_step(model, x_batch):
 
 class Weights(nnx.Module):
     def __init__(self, Nsize, n_cols_err, *, rngs):
-        self.linear1 = nnx.Linear(n_cols_err, Nsize//2, use_bias=False, rngs=rngs) # + n_params #False
+        self.linear1 = nnx.Linear(n_cols_err, Nsize//2, use_bias=False, rngs=rngs) # #False
         self.ln1     = nnx.LayerNorm(Nsize//2, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize//2, Nsize, use_bias=False, rngs=rngs) #False
         self.ln2     = nnx.LayerNorm(Nsize, rngs=rngs)
         self.linear3 = nnx.Linear(Nsize, 1, use_bias=True, rngs=rngs)
 
-    def __call__(self, data_err): #, params, dropout
-        w = data_err
+    def __call__(self, errors): #, dropout
+        w = errors
 
         w = self.linear1(w)
         w = self.ln1(w)
@@ -207,15 +207,16 @@ class Weights(nnx.Module):
         return nnx.softplus(w).squeeze(-1)
 
 class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols, *, rngs): #, n_params
-        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) # + n_params #False
+    def __init__(self, Nsize, n_cols_val, n_params, *, rngs): #, n_params
+        self.linear1 = nnx.Linear(n_cols_val+n_params, 2*Nsize, use_bias=False, rngs=rngs) # + n_params #False
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs) #False
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear5 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, dropout, data): #, params
-        h = data
+    def __call__(self, dropout, values, params): #, params
+        # h = values
+        h = jnp.concatenate([values, params], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -273,7 +274,7 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols_val = 5
         self.n_cols_err = 3
 
-        self.phi = Phi(Nsize_p, self.n_cols, rngs=rngs)
+        self.phi = Phi(Nsize_p, self.n_cols_val, n_params, rngs=rngs)
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
         self.weights = Weights(Nsize_p, self.n_cols_err, rngs=rngs)
 
@@ -294,10 +295,10 @@ class DeepSetClassifier(nnx.Module):
         # Reshape data columns
         data = input_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
 
-        # val_idx = jnp.array([0, 2, 4, 6, 7])   # magobs, c, x1, prompt, z
+        val_idx = jnp.array([0, 2, 4, 6, 7])   # magobs, c, x1, prompt, z
         err_idx = jnp.array([1, 3, 5])         # magobs_err, c_err, x1_err
 
-        # values = data[..., val_idx]
+        values = data[..., val_idx]
         errors = data[..., err_idx]
 
         # Slice mask (last M columns)
@@ -306,7 +307,9 @@ class DeepSetClassifier(nnx.Module):
         # Parameters
         theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
-        features = self.phi(self.dropout_phi, data)
+        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+
+        features = self.phi(self.dropout_phi, values, theta_fill)
         weights  = self.weights(errors)
 
         # Apply mask
