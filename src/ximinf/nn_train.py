@@ -207,20 +207,15 @@ class Weights(nnx.Module):
         return nnx.softplus(w).squeeze(-1)
 
 class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols_val, *, rngs): #, n_params
-        self.linear1 = nnx.Linear(n_cols_val, 2*Nsize, use_bias=False, rngs=rngs) # + n_params #False
+    def __init__(self, Nsize, n_cols, *, rngs): #, n_params
+        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) # + n_params #False
         self.ln1     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs) #False
         self.ln2     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        # self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
-        # self.ln3     = nnx.LayerNorm(2*Nsize, rngs=rngs)
-        # self.linear4 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
-        # self.ln4     = nnx.LayerNorm(2*Nsize, rngs=rngs)
         self.linear5 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, dropout, data_val): #, params
-        h = data_val
-        # h = jnp.concatenate([data, params], axis=-1)
+    def __call__(self, dropout, data): #, params
+        h = data
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -231,16 +226,6 @@ class Phi(nnx.Module):
         h = self.ln2(h)
         h = nnx.gelu(h)
         h = dropout(h)
-
-        # h = self.linear3(h)
-        # h = self.ln3(h)
-        # h = nnx.gelu(h)
-        # h = dropout(h)
-
-        # h = self.linear4(h)
-        # h = self.ln4(h)
-        # h = nnx.gelu(h)
-        # h = dropout(h)
 
         h = self.linear5(h)
 
@@ -256,10 +241,6 @@ class Rho(nnx.Module):
         self.ln1     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs) #False
         self.ln2     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
-        # self.ln3     = nnx.LayerNorm(Nsize_r, rngs=rngs)
-        # self.linear4 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
-        # self.ln4     = nnx.LayerNorm(Nsize_r, rngs=rngs)
         self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
@@ -274,16 +255,6 @@ class Rho(nnx.Module):
         x = self.ln2(x)
         x = nnx.gelu(x)
         x = dropout(x)
-
-        # x = self.linear3(x)
-        # x = self.ln3(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
-
-        # x = self.linear4(x)
-        # x = self.ln4(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
 
         return self.linear5(x)
 
@@ -302,7 +273,7 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols_val = 5
         self.n_cols_err = 3
 
-        self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
+        self.phi = Phi(Nsize_p, self.n_cols, rngs=rngs)
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
         self.weights = Weights(Nsize_p, self.n_cols_err, rngs=rngs)
 
@@ -323,10 +294,10 @@ class DeepSetClassifier(nnx.Module):
         # Reshape data columns
         data = input_data[:, :M*self.n_cols].reshape(N, M, self.n_cols)
 
-        val_idx = jnp.array([0, 2, 4, 6, 7])   # magobs, c, x1, prompt, z
+        # val_idx = jnp.array([0, 2, 4, 6, 7])   # magobs, c, x1, prompt, z
         err_idx = jnp.array([1, 3, 5])         # magobs_err, c_err, x1_err
 
-        values = data[..., val_idx]
+        # values = data[..., val_idx]
         errors = data[..., err_idx]
 
         # Slice mask (last M columns)
@@ -335,16 +306,8 @@ class DeepSetClassifier(nnx.Module):
         # Parameters
         theta = input_data[:, -self.n_params:]  # shape (N, n_params)
 
-        # theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
-
-        features = self.phi(self.dropout_phi, values)
+        features = self.phi(self.dropout_phi, data)
         weights  = self.weights(errors)
-        
-        # Apply Phi
-        # h = self.phi(self.dropout_phi, data) #, theta_fill
-
-        # weights = h[..., -1]   # (N, M)
-        # features = h[..., :-1] # (N, M, D-1)
 
         # Apply mask
         features = features * mask[..., None]
@@ -356,11 +319,6 @@ class DeepSetClassifier(nnx.Module):
         weight_sum = jnp.where(weight_sum == 0, 1.0, weight_sum)
         
         pooled_mean = jnp.sum(weights[..., None] * features, axis=1) / weight_sum
-        
-        # diff = features - pooled_mean[:, None, :]
-        # pooled_var = jnp.sum(weights[..., None] * diff**2, axis=1) / weight_sum
-
-        # pooling = jnp.concatenate([pooled_mean, pooled_var], axis=-1)
         
         # Pool (masked average)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
