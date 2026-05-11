@@ -183,7 +183,7 @@ def pred_step(model, x_batch):
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs):
-        self.linear1 = nnx.Linear(n_cols_val, 2*Nsize, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear(n_cols_val+n_cols_err, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln1 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
@@ -200,8 +200,8 @@ class Phi(nnx.Module):
 
         self.linear6 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, values, errors):
-        h = values
+    def __call__(self, values, errors,theta):
+        h = jnp.concatenate([values, errors], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -311,6 +311,8 @@ class DeepSetClassifier(nnx.Module):
         mask = input_data[:, -M - self.n_params:-self.n_params]
         theta = input_data[:, -self.n_params:]
 
+        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
@@ -323,7 +325,8 @@ class DeepSetClassifier(nnx.Module):
         # val_features = self.phi_val(values)
         # err_features = self.phi_err(errors)
         # gamma_features = self.gamma(errors)
-        features = self.phi(values, errors)
+        # features = self.phi(values, errors)
+        features = self.phi(values, errors, theta_fill)
         
         # film = val_features * (1.0 + err_features) +  gamma_features
         
