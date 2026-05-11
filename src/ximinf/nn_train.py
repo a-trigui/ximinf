@@ -181,43 +181,9 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
-class AttnPool(nnx.Module):
+class Gamma(nnx.Module):
     def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs):
-
         self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
-        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
-        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        self.linear4 = nnx.Linear(Nsize, 1, use_bias=True, rngs=rngs)
-
-    def __call__(self, values, errors):
-        # Concatenate per-element features
-        # x = jnp.concatenate([values, errors], axis=-1)
-        x = errors
-
-        x = self.linear1(x)
-        x = self.ln1(x)
-        x = nnx.gelu(x)
-
-        x = self.linear2(x)
-        x = self.ln2(x)
-        x = nnx.gelu(x)
-
-        # attention logits
-        logits = self.linear4(x)  # (B, M, 1)
-
-        attn = jax.nn.sigmoid(logits)
-
-        return attn
-
-
-class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols_val, *, rngs):
-        self.res1 = nnx.Linear(n_cols_val, Nsize, use_bias=True, rngs=rngs)
-
-        self.linear1 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
         self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
 
         self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
@@ -225,8 +191,8 @@ class Phi(nnx.Module):
 
         self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, values):
-        h = self.res1(values)
+    def __call__(self, errors):
+        h = errors
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -239,6 +205,112 @@ class Phi(nnx.Module):
         return self.linear4(h)
 
 
+class PhiErr(nnx.Module):
+    def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs):
+        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
+        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
+
+    def __call__(self, errors):
+        h = errors
+
+        h = self.linear1(h)
+        h = self.ln1(h)
+        h = nnx.gelu(h)
+
+        h = self.linear2(h)
+        h = self.ln2(h)
+        h = nnx.gelu(h)
+
+        return self.linear4(h)
+
+class PhiVal(nnx.Module):
+    def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs):
+        self.linear1 = nnx.Linear(n_cols_val, Nsize, use_bias=False, rngs=rngs)
+        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln4 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear5 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
+
+    def __call__(self, values):
+        h = values
+
+        h = self.linear1(h)
+        h = self.ln1(h)
+        h = nnx.gelu(h)
+
+        h = self.linear2(h)
+        h = self.ln2(h)
+        h = nnx.gelu(h)
+
+        h = self.linear3(h)
+        h = self.ln3(h)
+        h = nnx.gelu(h)
+
+        h = self.linear4(h)
+        h = self.ln4(h)
+        h = nnx.gelu(h)
+
+        return self.linear5(h)
+
+class Phi(nnx.Module):
+    def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs):
+        self.linear1 = nnx.Linear(n_cols_val, Nsize, use_bias=False, rngs=rngs)
+        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln4 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear5 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln5 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear6 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
+
+    def __call__(self, values, errors):
+        h = values
+
+        h = self.linear1(h)
+        h = self.ln1(h)
+        h = nnx.gelu(h)
+
+        h = self.linear2(h)
+        h = self.ln2(h)
+        h = nnx.gelu(h)
+
+        h = self.linear3(h)
+        h = self.ln3(h)
+        h = nnx.gelu(h)
+
+        h = self.linear4(h)
+        h = self.ln4(h)
+        h = nnx.gelu(h)
+
+        h = self.linear5(h)
+        h = self.ln5(h)
+        h = nnx.gelu(h)
+
+        return self.linear6(h)
+
+
+
 class Rho(nnx.Module):
     def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
         self.linear1 = nnx.Linear(Nsize_p + n_params + 1, Nsize_r, use_bias=False, rngs=rngs)
@@ -247,7 +319,13 @@ class Rho(nnx.Module):
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        self.linear4 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
+
+        self.linear4 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
+        self.ln4 = nnx.LayerNorm(Nsize_r, rngs=rngs)
+
+        self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
         x = jnp.concatenate([pooled_features, params], axis=-1)
@@ -262,7 +340,17 @@ class Rho(nnx.Module):
         x = nnx.gelu(x)
         x = dropout(x)
 
-        return self.linear4(x)
+        x = self.linear3(x)
+        x = self.ln3(x)
+        x = nnx.gelu(x)
+        x = dropout(x)
+
+        x = self.linear4(x)
+        x = self.ln4(x)
+        x = nnx.gelu(x)
+        x = dropout(x)
+
+        return self.linear5(x)
 
 
 class DeepSetClassifier(nnx.Module):
@@ -279,14 +367,10 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols_val = 5
         self.n_cols_err = 3
 
-        self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
-
-        self.attn = AttnPool(
-            Nsize_p,
-            self.n_cols_val,
-            self.n_cols_err,
-            rngs=rngs
-        )
+        # self.phi_err = PhiErr(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
+        # self.phi_val = PhiVal(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
+        # self.gamma = Gamma(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
+        self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -311,29 +395,20 @@ class DeepSetClassifier(nnx.Module):
         mask = input_data[:, -M - self.n_params:-self.n_params]
         theta = input_data[:, -self.n_params:]
 
-        # element-wise representation
-        features = self.phi(values)
-
-        # attention over (values, errors)
-        attn = self.attn(values, errors)
-
-        # masked pooling
-        features = features * mask[..., None]
-        attn = attn * mask[..., None]
-
-
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
-        
-        pooled = jnp.sum(attn * features, axis=1)/mask_sum
 
-        pooled = jnp.concatenate(
+        features = self.phi(values, errors)
+        
+        pooled = jnp.sum(features * mask[..., None], axis=1) / mask_sum
+
+        rho_input = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
             axis=-1
         )
 
-        return self.rho(self.dropout_rho, pooled, theta)
+        return self.rho(self.dropout_rho, rho_input, theta)
 
 def train_loop(model,
                optimizer,
