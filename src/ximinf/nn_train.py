@@ -182,26 +182,20 @@ def pred_step(model, x_batch):
     return logits
 
 class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs):
-        self.linear1 = nnx.Linear(n_cols_val+n_cols_err, 2*Nsize, use_bias=False, rngs=rngs)
+    def __init__(self, Nsize, n_cols, *, rngs): #, n_params
+        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) #+n_cols_err+n_params
         self.ln1 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
         self.ln2 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
-        # self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
-        # self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        # self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
-        # self.ln4 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        # self.linear5 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
-        # self.ln5 = nnx.LayerNorm(Nsize, rngs=rngs)
+        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
+        self.ln3 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
         self.linear6 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, values, errors,theta):
-        h = jnp.concatenate([values, errors], axis=-1)
+    def __call__(self, data, theta):
+        h = data
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -211,17 +205,9 @@ class Phi(nnx.Module):
         h = self.ln2(h)
         h = nnx.gelu(h)
 
-        # h = self.linear3(h)
-        # h = self.ln3(h)
-        # h = nnx.gelu(h)
-
-        # h = self.linear4(h)
-        # h = self.ln4(h)
-        # h = nnx.gelu(h)
-
-        # h = self.linear5(h)
-        # h = self.ln5(h)
-        # h = nnx.gelu(h)
+        h = self.linear3(h)
+        h = self.ln3(h)
+        h = nnx.gelu(h)
 
         return self.linear6(h)
 
@@ -235,13 +221,10 @@ class Rho(nnx.Module):
         self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
         self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
-        # self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r//2, use_bias=False, rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize_r//2, rngs=rngs)
 
-        # self.linear4 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
-        # self.ln4 = nnx.LayerNorm(Nsize_r, rngs=rngs)
-
-        self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, rngs=rngs)
+        self.linear5 = nnx.Linear(Nsize_r//2, 1, use_bias=True, rngs=rngs)
 
     def __call__(self, dropout, pooled_features, params):
         x = jnp.concatenate([pooled_features, params], axis=-1)
@@ -256,15 +239,10 @@ class Rho(nnx.Module):
         x = nnx.gelu(x)
         x = dropout(x)
 
-        # x = self.linear3(x)
-        # x = self.ln3(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
-
-        # x = self.linear4(x)
-        # x = self.ln4(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
+        x = self.linear3(x)
+        x = self.ln3(x)
+        x = nnx.gelu(x)
+        x = dropout(x)
 
         return self.linear5(x)
 
@@ -280,13 +258,7 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols = n_cols
         self.n_params = n_params
 
-        self.n_cols_val = 5
-        self.n_cols_err = 3
-
-        # self.phi_err = PhiErr(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
-        # self.phi_val = PhiVal(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
-        # self.gamma = Gamma(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
-        self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
+        self.phi = Phi(Nsize_p, self.n_cols, rngs=rngs) #, self.n_params
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -302,12 +274,6 @@ class DeepSetClassifier(nnx.Module):
 
         data = input_data[:, :M * self.n_cols].reshape(N, M, self.n_cols)
 
-        val_idx = jnp.array([0, 2, 4, 6, 7])
-        err_idx = jnp.array([1, 3, 5])
-
-        values = data[..., val_idx]
-        errors = data[..., err_idx]
-
         mask = input_data[:, -M - self.n_params:-self.n_params]
         theta = input_data[:, -self.n_params:]
 
@@ -318,21 +284,10 @@ class DeepSetClassifier(nnx.Module):
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
         # masked pooling
-        # errs_pool = jnp.sum(self.phi_err(errors)* mask[..., None], axis=1)/mask_sum
-        # vals_pool = jnp.sum(self.phi_val(values)* mask[..., None], axis=1)/mask_sum
-        # gamma_pool = jnp.sum(self.gamma(errors)* mask[..., None],axis=1)/mask_sum
+        features = self.phi(data, theta_fill)
 
-        # val_features = self.phi_val(values)
-        # err_features = self.phi_err(errors)
-        # gamma_features = self.gamma(errors)
-        # features = self.phi(values, errors)
-        features = self.phi(values, errors, theta_fill)
-        
-        # film = val_features * (1.0 + err_features) +  gamma_features
         
         pooled = jnp.sum(features * mask[..., None], axis=1) / mask_sum
-
-        # film = vals_pool*(nnx.sigmoid(errs_pool))+gamma_pool
 
         rho_input = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
@@ -370,6 +325,12 @@ def train_loop(model,
     model.train()
 
     for epoch in range(epochs):
+
+        key, subkey = jax.random.split(key)
+        perm = jax.random.permutation(subkey, N)
+
+        train_data = train_data[perm]
+        train_labels = train_labels[perm]
         
         epoch_train_loss = 0
         epoch_train_accuracy = 0
