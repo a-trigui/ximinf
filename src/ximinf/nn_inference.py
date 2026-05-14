@@ -1,137 +1,171 @@
-# Standard
-import os
-import json
-import pickle
+import jax
+import jax.numpy as jnp
+import blackjax
 
-# Jax
-from flax import nnx
 
-# Checkpointing
-import orbax.checkpoint as ocp  # Checkpointing library
-ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
-import pathlib  # File path handling library
+# ----------------------------
+# Utilities
+# ----------------------------
+def preprocess_groups(param_groups, global_param_names):
+    visible_indices = []
+    group_indices = []
+    prev = []
+    for group in param_groups:
+        group_list = [group] if isinstance(group, str) else group
+        visible = prev + group_list
+        visible_idx = jnp.array([global_param_names.index(name) for name in visible])
+        group_idx = jnp.array([global_param_names.index(name) for name in group_list])
+        visible_indices.append(visible_idx)
+        group_indices.append(group_idx)
+        prev = visible
+    return visible_indices, group_indices
 
-# Modules
-import ximinf.nn_train as nntr
-
-# def load_nn(path):
-#     """
-#     Load a neural network model from a checkpoint.
-
-#     Parameters
-#     ----------
-#     path : str
-#         Path to the checkpoint directory.
-
-#     Returns
-#     -------
-#     model : nnx.Module
-#         The loaded neural network model.
-
-#     Raises
-#     ------
-#     ValueError
-#         If the checkpoint directory or config file does not exist.
-#     """
-#     # Define the checkpoint directory
-#     ckpt_dir = os.path.abspath(path)
-#     ckpt_dir = pathlib.Path(ckpt_dir).resolve()
-
-#     # Ensure the folder is removed before saving
-#     if ckpt_dir.exists()==False:
-#         # Make an error
-#         raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist. Please check the path.")
-    
-#     # Load model configuration
-#     config_path = ckpt_dir / 'config.json'
-#     if not config_path.exists():
-#         raise ValueError("Model config file not found in checkpoint directory.")
-    
-#     with open(config_path, 'r') as f:
-#         model_config = json.load(f)
-
-#     Nsize_p = model_config['Nsize_p']
-#     Nsize_r = model_config['Nsize_r']
-#     n_cols = model_config['n_cols']
-#     n_params = model_config['n_params']
-#     N_size_embed = model_config['N_size_embed']
-
-#     # 1. Re-create the checkpointer
-#     checkpointer = ocp.StandardCheckpointer()
-
-#     # Split the model into GraphDef (structure) and State (parameters + buffers)
-#     abstract_model = nnx.eval_shape(lambda: nntr.DeepSetClassifier(0.0, Nsize_p, Nsize_r, N_size_embed, n_cols, n_params, rngs=nnx.Rngs(0)))
-#     abs_graphdef, abs_rngkey, abs_rngcount, _ = nnx.split(abstract_model, nnx.RngKey, nnx.RngCount, ...)
-
-#     # 3. Restore
-#     state_restored = checkpointer.restore(ckpt_dir / 'state')
-#     print('NNX State restored: ')
-
-#     model = nnx.merge(abs_graphdef, abs_rngkey, abs_rngcount, state_restored)
-
-#     nnx.display(model)
-
-#     return model
-
-def load_autoregressive_nn(path):
+def log_group_prior(theta, priors, group_names, group_indices):
     """
-    Load an autoregressive stack of NNX models.
-
-    Parameters
-    ----------
-    path : str
-        Checkpoint directory.
-
-    Returns
-    -------
-    models_per_group : list[nnx.Module]
-        Reconstructed models, one per group.
-    model_config : dict
-        Loaded configuration dictionary.
+    theta: flat array
+    priors: dict of name -> {'range', 'type'}
+    group_names: list of names in this group
+    group_indices: list/array of indices in theta corresponding to group_names
     """
-    ckpt_dir = pathlib.Path(path).resolve()
-    if not ckpt_dir.exists():
-        raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist.")
+    logp = 0.0
+    for idx, name in zip(group_indices, group_names):
+        val = theta[idx]
+        info = priors[name]
+        low, high = info["range"]
+        ptype = info["type"]
 
-    config_path = ckpt_dir / "config.pkl"
-    if not config_path.exists():
-        raise ValueError("Model config file not found.")
-
-    with open(config_path, "rb") as f:
-        model_config = pickle.load(f)
-
-    shared = model_config["shared"]
-    group_configs = model_config["groups"]
-
-    checkpointer = ocp.StandardCheckpointer()
-    models_per_group = []
-
-    for gconf in group_configs:
-        n_params_visible = gconf["n_params_visible"]
-
-        # Recreate abstract model (shape-only)
-        abstract_model = nnx.eval_shape(
-            lambda: nntr.DeepSetClassifier(
-                phi_drop_rate=0.0,
-                rho_drop_rate=0.0,
-                Nsize_p=shared["Nsize_p"],
-                Nsize_r=shared["Nsize_r"],
-                n_cols=len(shared["columns"]), #shared["n_cols"]
-                n_params=n_params_visible,
-                rngs=nnx.Rngs(0),
+        if ptype == "uniform":
+            logp_i = jnp.where(
+                (val >= low) & (val <= high),
+                -jnp.log(high - low),
+                -jnp.inf,
             )
+        elif ptype == "gaussian":
+            mean = 0.5 * (low + high)
+            sigma = (high - low) / (2.0 * 1.96)
+            logp_i = (
+                -0.5 * ((val - mean) / sigma) ** 2
+                - jnp.log(sigma * jnp.sqrt(2.0 * jnp.pi))
+            )
+        elif ptype == "half-gaussian":
+            sigma = high / 1.96
+            logp_i = jnp.where(
+                val >= 0.0,
+                jnp.log(2.0)
+                - jnp.log(sigma * jnp.sqrt(2.0 * jnp.pi))
+                - 0.5 * (val / sigma) ** 2,
+                -jnp.inf,
+            )
+        elif ptype == "positive-gaussian":
+            mu = 0.5 * (low + high)
+            sigma = (high - low) / (2.0 * 1.96)
+
+            alpha = (0.0 - mu) / sigma
+            Phi_alpha = 0.5 * (1.0 + jax.scipy.special.erf(alpha / jnp.sqrt(2.0)))
+
+            log_norm = -jnp.log(1.0 - Phi_alpha)
+
+            logp_i = jnp.where(
+                val >= 0.0,
+                -jnp.log(sigma * jnp.sqrt(2.0 * jnp.pi))
+                - 0.5 * ((val - mu) / sigma) ** 2
+                + log_norm,
+                -jnp.inf,
+            )
+        elif ptype == "log-uniform":
+            logp_i = jnp.where(
+                (val >= low) & (val <= high),
+                -jnp.log(val) - jnp.log(jnp.log(high / low)),
+                -jnp.inf,
+            )
+        elif ptype == "exponential":
+            lam = -jnp.log(1.0 - 0.95) / high
+
+            logp_i = jnp.where(
+                val >= 0.0,
+                jnp.log(lam) - lam * val,
+                -jnp.inf,
+            )
+        else:
+            raise ValueError(f"Unknown prior type '{ptype}'")
+
+        logp += logp_i
+
+    return logp
+
+
+def inference_loop(initial_state, kernel, num_samples, rng_key):
+    @jax.jit
+    def one_step(state, rng_key):
+        state, _ = kernel(rng_key, state)
+        return state, state.position
+    
+    rng_key, sample_key = jax.random.split(rng_key)
+    keys = jax.random.split(sample_key, num_samples)
+    _, positions = jax.lax.scan(one_step, initial_state, keys)
+
+    return rng_key, positions
+
+def log_prob_single_group(
+    theta_visible,
+    model,
+    xi,
+    theta,
+    priors,
+    group_names,
+    group_indices
+):
+    input_g = jnp.concatenate([xi, theta_visible], axis=-1)
+    logits = model(input_g).squeeze()
+
+    prob = jax.nn.sigmoid(logits)
+    log_r = jnp.log(prob) - jnp.log1p(-prob)
+
+    log_p = log_group_prior(theta, priors, group_names, group_indices)
+
+
+    return log_r + log_p
+
+def log_prob_fn_groups(
+    theta,
+    models_per_group,
+    xi,
+    priors,
+    visible_indices,
+    group_indices,
+    group_names_list,
+):
+    xi = xi.reshape(1, -1)
+    log_sum = 0.0
+
+    for v_idx, g_idx, group_names, model in zip(
+        visible_indices, group_indices, group_names_list, models_per_group
+    ):
+        theta_visible = theta[v_idx].reshape(1, -1)
+
+        log_prob = log_prob_single_group(
+            theta_visible,
+            model,
+            xi,
+            theta,
+            priors,
+            group_names,
+            g_idx
         )
 
-        graphdef, rngkey, rngcount, _ = nnx.split(
-            abstract_model, nnx.RngKey, nnx.RngCount, ...
-        )
+        log_sum += log_prob
 
-        # Restore parameters
-        state = checkpointer.restore(
-            ckpt_dir / f"state_group_{gconf['group_id']}"
-        )
+    return log_sum
 
-        model = nnx.merge(graphdef, rngkey, rngcount, state)
-        models_per_group.append(model)
 
-    return models_per_group, model_config
+def build_kernel(log_prob, init_position, n_warmup, rng_key):
+    warmup = blackjax.window_adaptation(blackjax.nuts, log_prob)
+    rng_key, warmup_key = jax.random.split(rng_key)
+    (warmup_state, params), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
+    kernel = blackjax.nuts(log_prob, **params).step
+    return rng_key, kernel, warmup_state
+
+def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
+    rng_key, kernel, warmup_state = build_kernel(log_prob, init_position, n_warmup, rng_key)
+    rng_key, positions = inference_loop(warmup_state, kernel, n_samples, rng_key)
+    return rng_key, positions

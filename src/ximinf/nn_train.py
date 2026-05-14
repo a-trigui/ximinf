@@ -1,6 +1,4 @@
 # Standard and scientific
-import os
-import pickle
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import subprocess
@@ -14,12 +12,16 @@ from flax import nnx  # The Flax NNX API
 # Optimization
 import optax  # Optimisers for JAX
 
-# Checkpointing
-import orbax.checkpoint as ocp  # Checkpointing library
-ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
-
 # Cosmology
 from astropy.cosmology import Planck18
+
+def print_gpu_memory():
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,nounits,noheader"],
+        capture_output=True, text=True
+    )
+    used, total = map(int, result.stdout.strip().split(','))
+    print(f"GPU memory used: {used} MB / {total} MB")
 
 def rm_cosmo(z, magobs, ref_mag=19.3, package='cosmologix'):
     """
@@ -427,38 +429,3 @@ def train_loop(model,
             print(f"\n Reached maximum epochs: {epochs} \n")
 
     return model, metrics_history, key
-
-def save_autoregressive_nn(models_per_group, path, model_config):
-    """
-    Save an autoregressive stack of NNX models.
-
-    Parameters
-    ----------
-    models_per_group : list[nnx.Module]
-        One model per autoregressive group.
-    path : str
-        Checkpoint directory.
-    model_config : dict
-        Full model configuration (shared + per-group).
-    """
-    ckpt_dir = os.path.abspath(path)
-    ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
-
-    checkpointer = ocp.StandardCheckpointer()
-
-    for g, model in enumerate(models_per_group):
-        # Split model into graph-independent state
-        _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
-        checkpointer.save(ckpt_dir / f"state_group_{g}", state)
-
-    # Save configuration
-    with open(ckpt_dir / "config.pkl", "wb") as f:
-        pickle.dump(model_config, f)
-
-def print_gpu_memory():
-    result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,nounits,noheader"],
-        capture_output=True, text=True
-    )
-    used, total = map(int, result.stdout.strip().split(','))
-    print(f"GPU memory used: {used} MB / {total} MB")
