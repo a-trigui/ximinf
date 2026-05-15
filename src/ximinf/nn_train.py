@@ -183,7 +183,37 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
-class AttnPool(nnx.Module):
+class Gamma(nnx.Module):
+    def __init__(self, Nsize, n_cols_err, *, rngs):
+
+        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
+        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
+
+    def __call__(self, errors):
+        # Concatenate per-element features
+        x = errors
+
+        x = self.linear1(x)
+        x = self.ln1(x)
+        x = nnx.gelu(x)
+
+        x = self.linear2(x)
+        x = self.ln2(x)
+        x = nnx.gelu(x)
+
+        # attention logits
+        logits = self.linear4(x)  # (B, M, 1)
+
+        # attn = jax.nn.sigmoid(logits)
+
+        return logits
+
+class Beta(nnx.Module):
     def __init__(self, Nsize, n_cols_err, *, rngs):
 
         self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
@@ -209,9 +239,9 @@ class AttnPool(nnx.Module):
         # attention logits
         logits = self.linear4(x)  # (B, M, 1)
 
-        attn = jax.nn.sigmoid(logits)
+        # attn = jax.nn.sigmoid(logits)
 
-        return attn
+        return logits
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols_val, *, rngs): #, n_params
@@ -294,11 +324,8 @@ class DeepSetClassifier(nnx.Module):
 
         self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
 
-        self.attn = AttnPool(
-            Nsize_p,
-            self.n_cols_err,
-            rngs=rngs
-        )
+        self.gamma = Gamma(Nsize_p, self.n_cols_err, rngs=rngs)
+        self.beta = Beta(Nsize_p, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -327,18 +354,20 @@ class DeepSetClassifier(nnx.Module):
         features = self.phi(values)
 
         # attention over (values, errors)
-        attn = self.attn(errors)
+        gamma = self.gamma(errors)
+        beta = self.beta(errors)
 
         # masked pooling
         features = features * mask[..., None]
-        attn = attn * mask[..., None]
+        gamma = gamma * mask[..., None]
+        beta = beta * mask[..., None]
 
 
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
-        pooled = jnp.sum(attn * features, axis=1)/mask_sum
+        pooled = jnp.sum(gamma * features + beta, axis=1)/mask_sum
 
         pooled = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
