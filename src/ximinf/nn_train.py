@@ -183,9 +183,39 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
+class AttnPool(nnx.Module):
+    def __init__(self, Nsize, n_cols_err, *, rngs):
+
+        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
+        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+
+        self.linear4 = nnx.Linear(Nsize, 1, use_bias=True, rngs=rngs)
+
+    def __call__(self, errors):
+        # Concatenate per-element features
+        x = errors
+
+        x = self.linear1(x)
+        x = self.ln1(x)
+        x = nnx.gelu(x)
+
+        x = self.linear2(x)
+        x = self.ln2(x)
+        x = nnx.gelu(x)
+
+        # attention logits
+        logits = self.linear4(x)  # (B, M, 1)
+
+        attn = jax.nn.sigmoid(logits)
+
+        return attn
+
 class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols, *, rngs): #, n_params
-        self.linear1 = nnx.Linear(n_cols, 2*Nsize, use_bias=False, rngs=rngs) #+n_cols_err+n_params
+    def __init__(self, Nsize, n_cols_val, *, rngs): #, n_params
+        self.linear1 = nnx.Linear(n_cols_val, 2*Nsize, use_bias=False, rngs=rngs) #+n_cols_err+n_params
         self.ln1 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
         self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
@@ -196,8 +226,8 @@ class Phi(nnx.Module):
 
         self.linear6 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
 
-    def __call__(self, data, theta):
-        h = data
+    def __call__(self, values):
+        h = values
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -212,7 +242,6 @@ class Phi(nnx.Module):
         h = nnx.gelu(h)
 
         return self.linear6(h)
-
 
 
 class Rho(nnx.Module):
@@ -260,7 +289,16 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols = n_cols
         self.n_params = n_params
 
-        self.phi = Phi(Nsize_p, self.n_cols, rngs=rngs) #, self.n_params
+        self.n_cols_val = 5
+        self.n_cols_err = 3
+
+        self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
+
+        self.attn = AttnPool(
+            Nsize_p,
+            self.n_cols_err,
+            rngs=rngs
+        )
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -276,27 +314,38 @@ class DeepSetClassifier(nnx.Module):
 
         data = input_data[:, :M * self.n_cols].reshape(N, M, self.n_cols)
 
+        val_idx = jnp.array([0, 2, 4, 6, 7])
+        err_idx = jnp.array([1, 3, 5])
+
+        values = data[..., val_idx]
+        errors = data[..., err_idx]
+
         mask = input_data[:, -M - self.n_params:-self.n_params]
         theta = input_data[:, -self.n_params:]
 
-        theta_fill = jnp.broadcast_to(theta[:, None, :], (N, M, self.n_params))
+        # element-wise representation
+        features = self.phi(values)
+
+        # attention over (values, errors)
+        attn = self.attn(errors)
+
+        # masked pooling
+        features = features * mask[..., None]
+        attn = attn * mask[..., None]
+
 
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
-        # masked pooling
-        features = self.phi(data, theta_fill)
+        pooled = jnp.sum(attn * features, axis=1)/mask_sum
 
-        
-        pooled = jnp.sum(features * mask[..., None], axis=1) / mask_sum
-
-        rho_input = jnp.concatenate(
+        pooled = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
             axis=-1
         )
 
-        return self.rho(self.dropout_rho, rho_input, theta)
+        return self.rho(self.dropout_rho, pooled, theta)
 
 def train_loop(model,
                optimizer,
