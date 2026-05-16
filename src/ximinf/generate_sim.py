@@ -9,6 +9,7 @@ import skysurvey_sniapop
 from scipy.special import erfinv, erf, expit
 from astropy.cosmology import Planck18, FlatLambdaCDM
 from modeldag.tools import apply_gaussian_noise
+from scipy import stats
 # import pandas as pd
 # import os
 
@@ -119,7 +120,7 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
     return params_dict
 
 
-def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, rng=None, simple_broken = False, N=None, i=None, survey_name=None, lightcurve=False):
+def simulate_one(params_dict, z_max, M, cols, default_params, c=None, errormodel=None, rng=None, simple_broken = False, N=None, i=None, survey_name=None, lightcurve=False):
     """
     Simulate a single dataset of SNe Ia.
 
@@ -189,6 +190,9 @@ def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, r
 
     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
+    if c is None:
+        c = { "func": stats.alpha.rvs, "kwargs":{"a":3.63, "loc": -0.416, "scale": 1.62}}
+
     if simple_broken == True:
         brokenalpha_model['x1'] = {'func': SNeIaStretch.nicolas2021}
         brokenalpha_model['x1mode'] = {'func': get_strect_mode_simple, 'kwargs': {'x1': '@x1', 'x1ref': x1_ref_}}
@@ -202,7 +206,7 @@ def simulate_one(params_dict, z_max, M, cols, default_params, errormodel=None, r
             model=brokenalpha_model,
             magabs={
                 "x1": "@x1",
-                "c": "@c",
+                "c": c,
                 "mabs": mabs_,
                 "sigmaint": sigma_int_,
                 "alpha_low": alpha_low_,
