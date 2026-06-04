@@ -183,16 +183,16 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
-class Gamma(nnx.Module):
+class W(nnx.Module):
     def __init__(self, Nsize, n_cols_err, *, rngs):
 
-        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, kernel_init=nnx.initializers.he_normal(), rngs=rngs) #, kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        self.linear4 = nnx.Linear(Nsize, Nsize, use_bias=True, rngs=rngs)
+        self.linear4 = nnx.Linear(Nsize, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
 
     def __call__(self, errors):
         # Concatenate per-element features
@@ -209,52 +209,22 @@ class Gamma(nnx.Module):
         # attention logits
         logits = self.linear4(x)  # (B, M, 1)
 
-        # attn = jax.nn.sigmoid(logits)
+        attn = jax.nn.sigmoid(logits)
 
-        return logits
-
-class Beta(nnx.Module):
-    def __init__(self, Nsize, n_cols_err, *, rngs):
-
-        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, rngs=rngs)
-        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, rngs=rngs)
-        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        self.linear4 = nnx.Linear(Nsize, 1, use_bias=True, rngs=rngs)
-
-    def __call__(self, errors):
-        # Concatenate per-element features
-        x = errors
-
-        x = self.linear1(x)
-        x = self.ln1(x)
-        x = nnx.gelu(x)
-
-        x = self.linear2(x)
-        x = self.ln2(x)
-        x = nnx.gelu(x)
-
-        # attention logits
-        logits = self.linear4(x)  # (B, M, 1)
-
-        # attn = jax.nn.sigmoid(logits)
-
-        return logits
+        return attn
 
 class Phi(nnx.Module):
     def __init__(self, Nsize, n_cols_val, *, rngs): #, n_params
-        self.linear1 = nnx.Linear(n_cols_val, 2*Nsize, use_bias=False, rngs=rngs) #+n_cols_err+n_params
+        self.linear1 = nnx.Linear(n_cols_val, 2*Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #+n_cols_err+n_params ,kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
-        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
+        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         self.ln2 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
-        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False, rngs=rngs)
+        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         self.ln3 = nnx.LayerNorm(2*Nsize, rngs=rngs)
 
-        self.linear6 = nnx.Linear(2*Nsize, Nsize, use_bias=True, rngs=rngs)
+        self.linear6 = nnx.Linear(2*Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
 
     def __call__(self, values):
         h = values
@@ -276,16 +246,16 @@ class Phi(nnx.Module):
 
 class Rho(nnx.Module):
     def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + n_params + 1, Nsize_r, use_bias=False, rngs=rngs)
+        self.linear1 = nnx.Linear(Nsize_p + n_params + 1, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #, kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        self.linear3 = nnx.Linear(Nsize_r, Nsize_r//2, use_bias=False, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r//2, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         self.ln3 = nnx.LayerNorm(Nsize_r//2, rngs=rngs)
 
-        self.linear5 = nnx.Linear(Nsize_r//2, 1, use_bias=True, rngs=rngs)
+        self.linear5 = nnx.Linear(Nsize_r//2, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
 
     def __call__(self, dropout, pooled_features, params):
         x = jnp.concatenate([pooled_features, params], axis=-1)
@@ -311,21 +281,23 @@ class Rho(nnx.Module):
 class DeepSetClassifier(nnx.Module):
     def __init__(self, phi_drop_rate, rho_drop_rate,
                  Nsize_p, Nsize_r,
-                 n_cols, n_params, *, rngs):
+                 n_cols, n_params, val_idx, err_idx, *, rngs):
 
-        self.dropout_phi = nnx.Dropout(rate=phi_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
-        self.dropout_rho = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
+        self.dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
 
         self.n_cols = n_cols
         self.n_params = n_params
 
-        self.n_cols_val = 5
-        self.n_cols_err = 3
+        self.val_idx = jnp.asarray(val_idx)
+        self.err_idx = jnp.asarray(err_idx)
+
+        self.n_cols_val = len(val_idx)
+        self.n_cols_err = len(err_idx)
 
         self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
 
-        self.gamma = Gamma(Nsize_p, self.n_cols_err, rngs=rngs)
-        self.beta = Beta(Nsize_p, self.n_cols_err, rngs=rngs)
+        # self.gamma = Gamma(Nsize_p, self.n_cols_err, rngs=rngs)
+        self.w = W(Nsize_p, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -341,11 +313,8 @@ class DeepSetClassifier(nnx.Module):
 
         data = input_data[:, :M * self.n_cols].reshape(N, M, self.n_cols)
 
-        val_idx = jnp.array([0, 2, 4, 6, 7])
-        err_idx = jnp.array([1, 3, 5])
-
-        values = data[..., val_idx]
-        errors = data[..., err_idx]
+        values = data[..., self.val_idx]
+        errors = data[..., self.err_idx]
 
         mask = input_data[:, -M - self.n_params:-self.n_params]
         theta = input_data[:, -self.n_params:]
@@ -354,27 +323,27 @@ class DeepSetClassifier(nnx.Module):
         features = self.phi(values)
 
         # attention over (values, errors)
-        gamma = self.gamma(errors)
-        beta = self.beta(errors)
+        # gamma = self.gamma(errors)
+        w = self.w(errors)
 
         # masked pooling
         features = features * mask[..., None]
-        gamma = gamma * mask[..., None]
-        beta = beta * mask[..., None]
+        # gamma = gamma * mask[..., None]
+        w = w * mask[..., None]
 
 
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
-        pooled = jnp.sum(gamma * features + beta, axis=1)/mask_sum
+        pooled = jnp.sum(w * features, axis=1)/mask_sum
 
         pooled = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
             axis=-1
         )
 
-        return self.rho(self.dropout_rho, pooled, theta)
+        return self.rho(self.dropout, pooled, theta)
 
 def train_loop(model,
                optimizer,

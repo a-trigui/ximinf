@@ -67,6 +67,9 @@ def load_autoregressive_nn(path):
     shared = model_config["shared"]
     group_configs = model_config["groups"]
 
+    values_idx = [i for i, col in enumerate(shared["columns"]) if not col.endswith("_err")]
+    errors_idx = [i for i, col in enumerate(shared["columns"]) if col.endswith("_err")]
+
     checkpointer = ocp.StandardCheckpointer()
     models_per_group = []
 
@@ -82,6 +85,8 @@ def load_autoregressive_nn(path):
                 Nsize_r=shared["Nsize_r"],
                 n_cols=len(shared["columns"]), #shared["n_cols"]
                 n_params=n_params_visible,
+                val_idx = values_idx,
+                err_idx = errors_idx,
                 rngs=nnx.Rngs(0),
             )
         )
