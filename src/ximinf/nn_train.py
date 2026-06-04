@@ -296,7 +296,6 @@ class DeepSetClassifier(nnx.Module):
 
         self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
 
-        # self.gamma = Gamma(Nsize_p, self.n_cols_err, rngs=rngs)
         self.w = W(Nsize_p, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)

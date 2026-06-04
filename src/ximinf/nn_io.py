@@ -76,20 +76,17 @@ def load_autoregressive_nn(path):
     for gconf in group_configs:
         n_params_visible = gconf["n_params_visible"]
 
-        # Recreate abstract model (shape-only)
-        abstract_model = nnx.eval_shape(
-            lambda: nntr.DeepSetClassifier(
-                rho_drop_rate=0.0,
-                Nsize_p=shared["Nsize_p"],
-                Nsize_r=shared["Nsize_r"],
-                n_cols=len(shared["columns"]), #shared["n_cols"]
-                n_params=n_params_visible,
-                val_idx = values_idx,
-                err_idx = errors_idx,
-                rngs=nnx.Rngs(0),
-            )
+        abstract_model = nntr.DeepSetClassifier(
+            rho_drop_rate=0.0,
+            Nsize_p=shared["Nsize_p"],
+            Nsize_r=shared["Nsize_r"],
+            n_cols=len(shared["columns"]),
+            n_params=n_params_visible,
+            val_idx=values_idx,
+            err_idx=errors_idx,
+            rngs=nnx.Rngs(0),
         )
-
+        
         graphdef, rngkey, rngcount, _ = nnx.split(
             abstract_model, nnx.RngKey, nnx.RngCount, ...
         )
