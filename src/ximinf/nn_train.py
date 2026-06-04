@@ -279,7 +279,7 @@ class Rho(nnx.Module):
 
 
 class DeepSetClassifier(nnx.Module):
-    def __init__(self, phi_drop_rate, rho_drop_rate,
+    def __init__(self, rho_drop_rate,
                  Nsize_p, Nsize_r,
                  n_cols, n_params, val_idx, err_idx, *, rngs):
 
@@ -321,14 +321,10 @@ class DeepSetClassifier(nnx.Module):
 
         # element-wise representation
         features = self.phi(values)
-
-        # attention over (values, errors)
-        # gamma = self.gamma(errors)
         w = self.w(errors)
 
         # masked pooling
         features = features * mask[..., None]
-        # gamma = gamma * mask[..., None]
         w = w * mask[..., None]
 
 
