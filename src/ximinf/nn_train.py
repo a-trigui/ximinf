@@ -183,51 +183,21 @@ def pred_step(model, x_batch):
     logits = model(x_batch)
     return logits
 
-class W(nnx.Module):
-    def __init__(self, Nsize, n_cols_err, *, rngs):
-
-        self.linear1 = nnx.Linear(n_cols_err, Nsize, use_bias=False, kernel_init=nnx.initializers.he_normal(), rngs=rngs) #, kernel_init=nnx.initializers.he_normal()
+class Phi(nnx.Module):
+    def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs): #, n_params
+        self.linear1 = nnx.Linear(n_cols_val+n_cols_err, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #+n_cols_err+n_params ,kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False, kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        self.linear4 = nnx.Linear(Nsize, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
+        self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-    def __call__(self, errors):
-        # Concatenate per-element features
-        x = errors
+        self.linear6 = nnx.Linear(Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
 
-        x = self.linear1(x)
-        x = self.ln1(x)
-        x = nnx.gelu(x)
-
-        x = self.linear2(x)
-        x = self.ln2(x)
-        x = nnx.gelu(x)
-
-        # attention logits
-        logits = self.linear4(x)  # (B, M, 1)
-
-        attn = jax.nn.sigmoid(logits)
-
-        return attn
-
-class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols_val, *, rngs): #, n_params
-        self.linear1 = nnx.Linear(n_cols_val, 2*Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #+n_cols_err+n_params ,kernel_init=nnx.initializers.he_normal()
-        self.ln1 = nnx.LayerNorm(2*Nsize, rngs=rngs)
-
-        self.linear2 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln2 = nnx.LayerNorm(2*Nsize, rngs=rngs)
-
-        self.linear3 = nnx.Linear(2*Nsize, 2*Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln3 = nnx.LayerNorm(2*Nsize, rngs=rngs)
-
-        self.linear6 = nnx.Linear(2*Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-
-    def __call__(self, values):
-        h = values
+    def __call__(self, values, errors):
+        h = jnp.concatenate([values,errors], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
@@ -280,7 +250,7 @@ class Rho(nnx.Module):
 
 class DeepSetClassifier(nnx.Module):
     def __init__(self, rho_drop_rate,
-                 Nsize_p, Nsize_r,
+                 Nsize_p, Nsize_r, #Nsize_w,
                  n_cols, n_params, val_idx, err_idx, *, rngs):
 
         self.dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
@@ -294,9 +264,9 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols_val = len(val_idx)
         self.n_cols_err = len(err_idx)
 
-        self.phi = Phi(Nsize_p, self.n_cols_val, rngs=rngs)
+        self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs) #, self.n_cols_err
 
-        self.w = W(Nsize_p, self.n_cols_err, rngs=rngs)
+        # self.w = W(Nsize_p, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -319,19 +289,19 @@ class DeepSetClassifier(nnx.Module):
         theta = input_data[:, -self.n_params:]
 
         # element-wise representation
-        features = self.phi(values)
-        w = self.w(errors)
+        features = self.phi(values, errors)
+        # w = self.w(errors)
 
         # masked pooling
         features = features * mask[..., None]
-        w = w * mask[..., None]
+        # w = w * mask[..., None]
 
 
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
-        pooled = jnp.sum(w * features, axis=1)/mask_sum
+        pooled = jnp.sum(features, axis=1)/mask_sum #w * 
 
         pooled = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
