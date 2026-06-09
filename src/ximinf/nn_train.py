@@ -188,11 +188,11 @@ class Phi(nnx.Module):
         self.linear1 = nnx.Linear(n_cols_val+n_cols_err, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #+n_cols_err+n_params ,kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+        # self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        # self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
+        # self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        # self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
 
         self.linear6 = nnx.Linear(Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
 
@@ -204,15 +204,15 @@ class Phi(nnx.Module):
         h = nnx.gelu(h)
         h = dropout(h)
 
-        h = self.linear2(h)
-        h = self.ln2(h)
-        h = nnx.gelu(h)
-        h = dropout(h)
+        # h = self.linear2(h)
+        # h = self.ln2(h)
+        # h = nnx.gelu(h)
+        # h = dropout(h)
 
-        h = self.linear3(h)
-        h = self.ln3(h)
-        h = nnx.gelu(h)
-        h = dropout(h)
+        # h = self.linear3(h)
+        # h = self.ln3(h)
+        # h = nnx.gelu(h)
+        # h = dropout(h)
 
         return self.linear6(h)
 
@@ -222,13 +222,13 @@ class Rho(nnx.Module):
         self.linear1 = nnx.Linear(Nsize_p + n_params + 1, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #, kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        # self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        # self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        self.linear3 = nnx.Linear(Nsize_r, Nsize_r//2, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln3 = nnx.LayerNorm(Nsize_r//2, rngs=rngs)
+        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r//2, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        # self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        self.linear5 = nnx.Linear(Nsize_r//2, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
+        self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
 
     def __call__(self, dropout, pooled_features, params):
         x = jnp.concatenate([pooled_features, params], axis=-1)
@@ -238,26 +238,26 @@ class Rho(nnx.Module):
         x = nnx.gelu(x)
         x = dropout(x)
 
-        x = self.linear2(x)
-        x = self.ln2(x)
-        x = nnx.gelu(x)
-        x = dropout(x)
+        # x = self.linear2(x)
+        # x = self.ln2(x)
+        # x = nnx.gelu(x)
+        # x = dropout(x)
 
-        x = self.linear3(x)
-        x = self.ln3(x)
-        x = nnx.gelu(x)
-        x = dropout(x)
+        # x = self.linear3(x)
+        # x = self.ln3(x)
+        # x = nnx.gelu(x)
+        # x = dropout(x)
 
         return self.linear5(x)
 
 
 class DeepSetClassifier(nnx.Module):
-    def __init__(self, rho_drop_rate,
+    def __init__(self, phi_drop_rate, rho_drop_rate,
                  Nsize_p, Nsize_r,
                  n_cols, n_params, val_idx, err_idx, *, rngs):
 
         self.rho_dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
-        self.phi_dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
+        self.phi_dropout = nnx.Dropout(rate=phi_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
 
         self.n_cols = n_cols
         self.n_params = n_params
@@ -295,7 +295,6 @@ class DeepSetClassifier(nnx.Module):
 
         # masked pooling
         features = features * mask[..., None]
-
 
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
