@@ -2,13 +2,14 @@ import jax
 import jax.numpy as jnp
 import ximinf.nn_inference as nninf 
 
-@jax.jit
 def sample_reference_point(rng_key, priors, param_names):
     """
     Sample a reference point uniformly over parameter ranges,
     consistent with the new prior structure.
     """
     rng_key, subkey = jax.random.split(rng_key)
+
+    param_names = list(param_names)
 
     lows = jnp.array([priors[name]["range"][0] for name in param_names])
     highs = jnp.array([priors[name]["range"][1] for name in param_names])
@@ -26,13 +27,14 @@ def one_sample_step_groups(
     param_names,
     models_per_group,
     visible_indices,
+    group_indices,
     group_names_list,
     n_warmup,
     n_samples,
 ):
     rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 3)
 
-    _, theta_r0 = sample_reference_point(key_r0, priors)
+    _, theta_r0 = sample_reference_point(key_r0, priors, param_names)
 
     def log_post(theta):
         return nninf.log_prob_fn_groups(
@@ -40,8 +42,8 @@ def one_sample_step_groups(
             models_per_group,
             xi,
             priors,
-            param_names,
             visible_indices,
+            group_indices,
             group_names_list,
         )
 
@@ -49,12 +51,12 @@ def one_sample_step_groups(
         log_post, n_warmup, n_samples, theta_star, key_mcmc
     )
 
-    d_star = nninf.distance(theta_star, theta_r0)
+    d_star = jnp.linalg.norm(theta_star - theta_r0)
     d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
+
     f_val = jnp.mean(d_samples < d_star)
 
-    return f_val, posterior, rng_key
-
+    return f_val, posterior
 
 
 def compute_ecp_tarp_groups(
@@ -65,6 +67,7 @@ def compute_ecp_tarp_groups(
     priors,
     param_names,
     visible_indices,
+    group_indices,
     group_names_list,
     n_warmup,
     n_samples,
@@ -74,7 +77,7 @@ def compute_ecp_tarp_groups(
         xi, theta_star = xi_theta
         rng_key, subkey = jax.random.split(rng_key)
 
-        f_val, posterior, rng_key = one_sample_step_groups(
+        f_val, posterior = one_sample_step_groups(
             subkey,
             xi,
             theta_star,
@@ -82,13 +85,14 @@ def compute_ecp_tarp_groups(
             param_names,
             models_per_group,
             visible_indices,
+            group_indices,
             group_names_list,
             n_warmup,
             n_samples,
         )
 
         return rng_key, (f_val, posterior)
-
+    
     rng_key, (f_vals, posteriors) = jax.lax.scan(
         scan_step, rng_key, (x_list, theta_star_list)
     )

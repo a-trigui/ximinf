@@ -196,20 +196,23 @@ class Phi(nnx.Module):
 
         self.linear6 = nnx.Linear(Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
 
-    def __call__(self, values, errors):
+    def __call__(self, dropout, values, errors):
         h = jnp.concatenate([values,errors], axis=-1)
 
         h = self.linear1(h)
         h = self.ln1(h)
         h = nnx.gelu(h)
+        h = dropout(h)
 
         h = self.linear2(h)
         h = self.ln2(h)
         h = nnx.gelu(h)
+        h = dropout(h)
 
         h = self.linear3(h)
         h = self.ln3(h)
         h = nnx.gelu(h)
+        h = dropout(h)
 
         return self.linear6(h)
 
@@ -250,10 +253,11 @@ class Rho(nnx.Module):
 
 class DeepSetClassifier(nnx.Module):
     def __init__(self, rho_drop_rate,
-                 Nsize_p, Nsize_r, #Nsize_w,
+                 Nsize_p, Nsize_r,
                  n_cols, n_params, val_idx, err_idx, *, rngs):
 
-        self.dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
+        self.rho_dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
+        self.phi_dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
 
         self.n_cols = n_cols
         self.n_params = n_params
@@ -264,9 +268,7 @@ class DeepSetClassifier(nnx.Module):
         self.n_cols_val = len(val_idx)
         self.n_cols_err = len(err_idx)
 
-        self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs) #, self.n_cols_err
-
-        # self.w = W(Nsize_p, self.n_cols_err, rngs=rngs)
+        self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
 
@@ -289,26 +291,24 @@ class DeepSetClassifier(nnx.Module):
         theta = input_data[:, -self.n_params:]
 
         # element-wise representation
-        features = self.phi(values, errors)
-        # w = self.w(errors)
+        features = self.phi(self.phi_dropout, values, errors)
 
         # masked pooling
         features = features * mask[..., None]
-        # w = w * mask[..., None]
 
 
         # add global mask statistics (kept from your design)
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
-        pooled = jnp.sum(features, axis=1)/mask_sum #w * 
+        pooled = jnp.sum(features, axis=1)/mask_sum
 
         pooled = jnp.concatenate(
             [pooled, jnp.log(mask_sum)],
             axis=-1
         )
 
-        return self.rho(self.dropout, pooled, theta)
+        return self.rho(self.rho_dropout, pooled, theta)
 
 def train_loop(model,
                optimizer,
