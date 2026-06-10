@@ -188,11 +188,11 @@ class Phi(nnx.Module):
         self.linear1 = nnx.Linear(n_cols_val+n_cols_err, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #+n_cols_err+n_params ,kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        # self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        # self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
 
-        # self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        # self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
 
         self.linear6 = nnx.Linear(Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
 
@@ -204,29 +204,29 @@ class Phi(nnx.Module):
         h = nnx.gelu(h)
         h = dropout(h)
 
-        # h = self.linear2(h)
-        # h = self.ln2(h)
-        # h = nnx.gelu(h)
-        # h = dropout(h)
+        h = self.linear2(h)
+        h = self.ln2(h)
+        h = nnx.gelu(h)
+        h = dropout(h)
 
-        # h = self.linear3(h)
-        # h = self.ln3(h)
-        # h = nnx.gelu(h)
-        # h = dropout(h)
+        h = self.linear3(h)
+        h = self.ln3(h)
+        h = nnx.gelu(h)
+        h = dropout(h)
 
         return self.linear6(h)
 
 
 class Rho(nnx.Module):
     def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
-        self.linear1 = nnx.Linear(Nsize_p + n_params + 1, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #, kernel_init=nnx.initializers.he_normal()
+        self.linear1 = nnx.Linear(Nsize_p + n_params + 1, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #  + 1 #, kernel_init=nnx.initializers.he_normal()
         self.ln1 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        # self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        # self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        # self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
+        self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
         self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
 
@@ -238,15 +238,15 @@ class Rho(nnx.Module):
         x = nnx.gelu(x)
         x = dropout(x)
 
-        # x = self.linear2(x)
-        # x = self.ln2(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
+        x = self.linear2(x)
+        x = self.ln2(x)
+        x = nnx.gelu(x)
+        x = dropout(x)
 
-        # x = self.linear3(x)
-        # x = self.ln3(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
+        x = self.linear3(x)
+        x = self.ln3(x)
+        x = nnx.gelu(x)
+        x = dropout(x)
 
         return self.linear5(x)
 
@@ -271,6 +271,8 @@ class DeepSetClassifier(nnx.Module):
         self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
 
         self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
+
+        self.pool_norm = nnx.LayerNorm(Nsize_p, rngs=rngs)
 
     def __call__(self, input_data):
 
@@ -300,10 +302,17 @@ class DeepSetClassifier(nnx.Module):
         mask_sum = jnp.sum(mask, axis=1, keepdims=True)
         mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
         
-        pooled = jnp.sum(features, axis=1)/mask_sum
+        # pooled = jnp.sum(features, axis=1)/mask_sum
 
+        # pooled = jnp.concatenate(
+        #     [pooled, jnp.log(mask_sum)],
+        #     axis=-1
+        # )
+
+        pooled = jnp.sum(features, axis=1)   # sum pooling
+        pooled = self.pool_norm(pooled)       # stabilize magnitude
         pooled = jnp.concatenate(
-            [pooled, jnp.log(mask_sum)],
+            [pooled, jnp.log(mask_sum)],      # Rho still sees M
             axis=-1
         )
 
