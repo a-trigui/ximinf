@@ -225,7 +225,7 @@ class Rho(nnx.Module):
         # self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         # self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
-        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r//2, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
+        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
         # self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
 
         self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()

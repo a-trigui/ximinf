@@ -77,8 +77,8 @@ def load_autoregressive_nn(path):
         n_params_visible = gconf["n_params_visible"]
 
         abstract_model = nntr.DeepSetClassifier(
-            phi_drop_rate=0.0,
-            rho_drop_rate=0.0,
+            phi_drop_rate=shared["phi_dropout_rate"],
+            rho_drop_rate=shared["rho_dropout_rate"],
             Nsize_p=shared["Nsize_p"],
             Nsize_r=shared["Nsize_r"],
             n_cols=len(shared["columns"]),
