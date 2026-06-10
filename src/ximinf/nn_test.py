@@ -29,6 +29,8 @@ def one_sample_step_groups(
     visible_indices,
     group_indices,
     group_names_list,
+    param_stats,
+    data_stats,
     n_warmup,
     n_samples,
 ):
@@ -51,12 +53,19 @@ def one_sample_step_groups(
         log_post, n_warmup, n_samples, theta_star, key_mcmc
     )
 
-    d_star = jnp.linalg.norm(theta_star - theta_r0)
-    d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
+    mus = jnp.array([param_stats[name]["mu"] for name in param_names])
+    sigmas = jnp.array([param_stats[name]["sigma"] for name in param_names])
+    
+    posterior_unnormed = posterior * sigmas + mus
+    theta_star_unnormed = theta_star * sigmas + mus
+    theta_r0_unnormed = theta_r0 * sigmas + mus
+
+    d_star = jnp.linalg.norm(theta_star_unnormed - theta_r0_unnormed)
+    d_samples = jnp.linalg.norm(posterior_unnormed - theta_r0_unnormed, axis=1)
 
     f_val = jnp.mean(d_samples < d_star)
 
-    return f_val, posterior
+    return f_val, posterior_unnormed
 
 
 def compute_ecp_tarp_groups(
@@ -69,6 +78,8 @@ def compute_ecp_tarp_groups(
     visible_indices,
     group_indices,
     group_names_list,
+    param_stats,
+    data_stats,
     n_warmup,
     n_samples,
     rng_key,
@@ -87,6 +98,8 @@ def compute_ecp_tarp_groups(
             visible_indices,
             group_indices,
             group_names_list,
+            param_stats,
+            data_stats,
             n_warmup,
             n_samples,
         )
