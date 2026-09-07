@@ -37,7 +37,7 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     with open(ckpt_dir / "config.pkl", "wb") as f:
         pickle.dump(model_config, f)
 
-def load_autoregressive_nn(path):
+def load_autoregressive_nn(path, model_cls):
     """
     Load an autoregressive stack of NNX models.
 
@@ -76,7 +76,7 @@ def load_autoregressive_nn(path):
     for gconf in group_configs:
         n_params_visible = gconf["n_params_visible"]
 
-        abstract_model = DeepSetClassifier(
+        abstract_model = model_cls(
             phi_drop_rate=shared["phi_dropout_rate"],
             rho_drop_rate=shared["rho_dropout_rate"],
             Nsize_p=shared["Nsize_p"],
