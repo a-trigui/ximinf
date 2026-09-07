@@ -8,8 +8,6 @@ ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
 import pathlib  # File path handling library
 
-from notebooks.nn_config import DeepSetClassifier
-
 def save_autoregressive_nn(models_per_group, path, model_config):
     """
     Save an autoregressive stack of NNX models.
