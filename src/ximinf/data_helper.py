@@ -9,7 +9,7 @@ import h5py
 import ximinf.nn_train as nntr
 
 import jax.scipy as jsp
-from cosmo_helper import distmod
+from ximinf import cosmo_helper as ch
 
 import h5py
 
@@ -233,7 +233,7 @@ def remove_cosmology(
     data_dict["isup"] = data_dict["isup"] - 0.5
 
     # Careful not to run the correction twice
-    mu = distmod(z, cosmo, package=package)
+    mu = ch.distmod(z, cosmo, package=package)
 
     magobs_corr = jnp.where(
         mask,
