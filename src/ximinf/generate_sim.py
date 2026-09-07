@@ -1,29 +1,13 @@
 # Simulation libraries
 import skysurvey
-from skysurvey.target.snia import SNeIaStretch
-# import sncosmo
-# from astropy.table import Table
 import numpy as np
 from pyDOE import lhs  # LHS sampler
-import skysurvey_sniapop
-from scipy.special import erfinv, erf, expit
-from astropy.cosmology import Planck18, FlatLambdaCDM
+from scipy.special import erfinv, erf
+from astropy.cosmology import Planck18
 from modeldag.tools import apply_gaussian_noise
-from scipy import stats
-# import pandas as pd
-# import os
+from copy import deepcopy
 
-# ztf_logs_path = 'data/ztf_logs.parquet'
-# if os.path.exists(ztf_logs_path):
-#     log_data = pd.read_parquet(ztf_logs_path)
-# else:
-#     survey = skysurvey.survey.ZTF.from_logs()
-
-
-
-fb = Planck18.Ob0 / Planck18.Om0
-
-def get_strect_mode_simple(x1, x1ref):
+def get_stretch_mode_simple(x1, x1ref):
     return x1>x1ref
 
 def scan_params(priors, N, n_realisation=1, dtype=np.float32):
@@ -119,204 +103,55 @@ def scan_params(priors, N, n_realisation=1, dtype=np.float32):
 
     return params_dict
 
-
-def simulate_one(params_dict, z_max, M, cols, default_params, c=None, errormodel=None, rng=None, simple_broken = False, N=None, i=None, survey_name=None, lightcurve=False):
+def simulate_one(params_dict, z_max, M, cols, default_params, SIMULATION_MODEL,
+                 errormodel=None, rng=None, N=None, i=None, out_df=False):
     """
     Simulate a single dataset of SNe Ia.
-
-    Parameters
-    ----------
-    params_dict : dict
-        Dictionary of model parameters (alpha, beta, mabs, gamma, sigma_int, etc.).
-    z_max : float
-        Maximum redshift.
-    M : int
-        Number of SNe to simulate.
-    cols : list of str
-        List of columns to include in the output.
-    errormodel : dict, optional
-        Error model to apply to the simulated data.
-    N : int, optional
-        Total number of simulations (for progress printing).
-    i : int, optional
-        Current simulation index (for progress printing).
-    survey : str, optional
-        Name of the survey (e.g., 'ztf', 'snls') to apply the corresponding selection function.
-
-    Returns
-    -------
-    data_dict : dict
-        Dictionary of lists (one per column) containing the simulated data.
     """
 
     # Print progress
     if N is not None and i is not None:
-        if (i+1) % max(1, N//10) == 0 or i == N-1:
-            print(f"Simulation {i+1}/{N}", end="\r", flush=True)
+        if (i + 1) % max(1, N // 10) == 0 or i == N - 1:
+            print(f"Simulation {i + 1}/{N}", end="\r", flush=True)
 
-    # Merge defaults with provided params (params_dict takes priority)
+    # Merge defaults with provided params
     params = {**default_params, **params_dict}
-
-    # If a single alpha is provided, enforce alpha_low = alpha_high = alpha
-    if "alpha" in params:
-        params["alpha_low"] = params["alpha"]
-        params["alpha_high"] = params["alpha"]
-
-    # Ensure all are floats
-    alpha_low_ = float(params["alpha_low"])
-    alpha_high_ = float(params["alpha_high"])
-    beta_  = float(params["beta"])
-    mabs_  = float(params["mabs"])
+    
+    alpha_ = float(params["alpha"])
+    beta_ = float(params["beta"])
+    mabs_ = float(params["mabs"])
     gamma_ = float(params["gamma"])
     sigma_int_ = float(params["sigma_int"])
-    x1_ref_ = float(params["x1_ref"])
 
-    # Set survey-specific selection parameters
-    cut_loc, cut_scale = None, None
-    if survey_name is not None:
-        cut_loc_key = f"cut_loc_{survey_name}"
-        cut_scale_key = f"cut_scale_{survey_name}"
-        cut_loc = params[cut_loc_key]
-        cut_scale = params[cut_scale_key]
+    model = deepcopy(SIMULATION_MODEL)
 
-    if "Om0" in params:
-        Om0 = params["Om0"]
-        Ob0 = fb * Om0
-        cosmo = FlatLambdaCDM(
-            **(Planck18.parameters | {"Om0": Om0, "Ob0": Ob0})
-        )
-    else:
-        cosmo = FlatLambdaCDM(**(Planck18.parameters))
+    model["magabs"]["kwargs"]["sigmaint"] = sigma_int_
+    model["magabs"]["kwargs"]["mabs"] = mabs_
+    model["magabs"]["kwargs"]["alpha"] = alpha_
+    model["magabs"]["kwargs"]["beta"] = beta_
+    model["magabs"]["kwargs"]["gamma"] = gamma_
 
-    brokenalpha_model = skysurvey_sniapop.brokenalpha_model
+    if rng is None:
+        rng = np.random.default_rng()
+    
+    model["isup"]["func"] = rng.binomial
 
-    if c is None:
-        c = { "func": stats.alpha.rvs, "kwargs":{"a":3.63, "loc": -0.416, "scale": 1.62}}
+    # Draw
+    snia = skysurvey.SNeIa.from_draw(
+        size=M,
+        zmax=z_max,
+        model=model,
+    )
 
-    if simple_broken == True:
-        brokenalpha_model['x1'] = {'func': SNeIaStretch.nicolas2021}
-        brokenalpha_model['x1mode'] = {'func': get_strect_mode_simple, 'kwargs': {'x1': '@x1', 'x1ref': x1_ref_}}
-
-        # Generate SNe sample
-        snia = skysurvey.SNeIa.from_draw(
-            # tstart=survey.date_range[0],
-            # tstop=survey.date_range[1],
-            size=M,
-            zmax=z_max,
-            model=brokenalpha_model,
-            magabs={
-                "x1": "@x1",
-                "c": c,
-                "mabs": mabs_,
-                "sigmaint": sigma_int_,
-                "alpha_low": alpha_low_,
-                "alpha_high": alpha_high_,
-                "beta": beta_,
-                "gamma": gamma_,
-            },
-            magobs={
-                'cosmology': cosmo
-            }
-        )
-    else:
-        # Generate SNe sample
-        snia = skysurvey.SNeIa.from_draw(
-            # tstart=survey.date_range[0],
-            # tstop=survey.date_range[1],
-            size=M,
-            zmax=z_max,
-            model=brokenalpha_model,
-            magabs={
-                "x1": "@x1",
-                "c": "@c",
-                "mabs": mabs_,
-                "sigmaint": sigma_int_,
-                "alpha_low": alpha_low_,
-                "alpha_high": alpha_high_,
-                "beta": beta_,
-                "gamma": gamma_,
-                "x1ref": x1_ref_
-            },
-            magobs={
-                'cosmology': cosmo
-            }
-        )
-
-    # Apply noise
+    # Noise
     if errormodel is None:
         df = snia.data
     else:
         if rng is None:
             rng = np.random.default_rng()
-        noisy_snia = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
-        df = noisy_snia
+        df = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
 
-    # Apply malmquist bias (selection) if survey-specific parameters are provided
-    if cut_loc is not None and cut_scale is not None:
-        mag = np.asarray(df["magobs"], dtype=np.float32)
-
-        # Detection probability
-        p_detect = 1.0 - expit((mag - cut_loc) * cut_scale)
-
-        # Bernoulli draw handled by numpy
-        mask = np.random.binomial(1, p_detect).astype(bool)
-
-        df = df.loc[mask].reset_index(drop=True)
-
-    # Collect columns
-    data_dict = {col: list(df[col]) for col in cols if col in df}
-    return data_dict
-
-
-
-
-
-# if lightcurve==True:
-#     dset = skysurvey.dataset.DataSet.from_targets_and_survey(snia, survey, phase_range=[-20, 60])
-#     ndetection = dset.get_ndetection()
-#     detected_indexes = ndetection[ndetection >= 7].index
-#     detected_sne_data = dset.data.loc[detected_indexes]
-#     detected_sne_data['zpsys'] = 'ab'
-#     grouped = detected_sne_data.groupby(level=0)
-
-#     results = {}
-#     fitted_models = {}
-
-#     # Loop over each supernova
-#     for sn_id, sn_data in grouped:
-#         print(f'sn_id : {sn_id}', end='\r')
-#         # Rename columns to match sncosmo's expectations
-#         sncosmo_data = sn_data.rename(columns={
-#             'mjd': 'time',
-#             'flux': 'flux',
-#             'fluxerr': 'fluxerr',
-#             'zp': 'zp',
-#             'band': 'band'
-#         })
-
-#         # sncosmo_data['zpsys'] = 'ab'
-
-#         # Convert to astropy.table.Table
-#         sncosmo_table = Table.from_pandas(sncosmo_data)
-
-#         row = data.iloc[sn_id]
-
-#         model = sncosmo.Model(source='salt2')
-
-#         # Set the model redshift to the known value
-#         model.set(z=row['z'])  # fix redshift from your row datafra
-
-#         # Fit the light curve
-#         try:
-#             result, fitted_model = sncosmo.fit_lc(
-#                 sncosmo_table,
-#                 model,
-#                 vparam_names=['t0', 'x0', 'x1', 'c'],
-#                 guess_z=False,
-#                 minsnr=5.0
-#             )
-#             results[sn_id] = result
-#             fitted_models[sn_id] = fitted_model
-#         except Exception as e:
-#             print(f"Failed to fit supernova {sn_id}: {e}")
-#             results[sn_id] = None
+    if out_df == True:
+        return df
+    else:
+        return {col: list(df[col]) for col in cols if col in df}

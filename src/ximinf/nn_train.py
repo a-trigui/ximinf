@@ -2,7 +2,6 @@
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import subprocess
-import numpy as np
 
 # JAX and Flax (new NNX API)
 import jax  # Automatic differentiation library
@@ -12,9 +11,6 @@ from flax import nnx  # The Flax NNX API
 # Optimization
 import optax  # Optimisers for JAX
 
-# Cosmology
-from astropy.cosmology import Planck18
-
 def print_gpu_memory():
     result = subprocess.run(
         ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,nounits,noheader"],
@@ -23,68 +19,36 @@ def print_gpu_memory():
     used, total = map(int, result.stdout.strip().split(','))
     print(f"GPU memory used: {used} MB / {total} MB")
 
-def rm_cosmo(z, magobs, ref_mag=19.3, package='cosmologix'):
-    """
-    Compute distance modulus and residuals directly at dataset redshifts.
+def setup_jax_device():
+    # Try GPU backends in priority order
+    gpu = None
+    for backend in ("METAL", "cuda", "gpu"):
+        try:
+            devs = jax.devices(backend)
+        except RuntimeError:
+            continue
+        if devs:
+            gpu = devs[0]
+            break
 
-    Parameters
-    ----------
-    z : array-like (JAX array)
-        Redshift values of the dataset.
-    magobs : array-like (JAX array)
-        Observed magnitudes.
-    ref_mag : float, optional
-        Reference magnitude to normalize magnitudes (default=19.3).
+    # Fallback
+    cpu = jax.devices("cpu")[0]
 
-    Returns
-    -------
-    mu_planck18 : jax.numpy.ndarray
-        Distance modulus at the dataset redshifts.
-    magobs_corr : jax.numpy.ndarray
-        Observed magnitudes corrected for cosmology.
-    """
-    # Direct evaluation
-    if package == 'astropy':
-        z_np = np.array(z)
-        mu_planck18 = jnp.array(Planck18.distmod(z_np).value, dtype=jnp.float32)
-    elif package == 'cosmologix':
-        from cosmologix import distances, parameters
-        mu_planck18 = distances.mu(parameters.get_cosmo_params('Planck18'), z).astype(jnp.float32)
+    # Use GPU if found
+    if gpu is not None and gpu.platform == "cuda":
+        print_gpu_memory()
+        device = gpu
+    elif gpu is not None:
+        device = gpu
     else:
-        raise ValueError('The distance modulus must be calculated using either astropy or cosmologix')
+        device = cpu
 
-    mask = magobs > 0
+    jax.default_device(device)
 
-    # Correct observed magnitudes
-    magobs_corr = jnp.where(
-        mask,
-        magobs - mu_planck18 + ref_mag,
-        0.0
-    )
+    backend = jax.default_backend()
+    print(backend)
 
-    return mu_planck18, magobs_corr
-
-def normalize(data_dict, stats_dict):
-    normed = {}
-    for k, v in data_dict.items():
-        if k in stats_dict:
-            mu = stats_dict[k]['mu']
-            sigma = stats_dict[k]['sigma']
-            normed[k] = (v - mu) / sigma
-        else:
-            normed[k] = v  # leave untouched
-    return normed
-
-def unnormalize(normed_params, param_stats):
-    unnormed = {}
-    for k, v in normed_params.items():
-        if k in param_stats:
-            mu = param_stats[k]['mu']
-            sigma = param_stats[k]['sigma']
-            unnormed[k] = v * sigma + mu  # inverse of normalization
-        else:
-            unnormed[k] = v  # leave untouched
-    return unnormed
+    return device, backend, cpu, gpu
 
 @nnx.jit
 def loss_fn(model, batch):
@@ -182,143 +146,6 @@ def pred_step(model, x_batch):
   
     logits = model(x_batch)
     return logits
-
-class Phi(nnx.Module):
-    def __init__(self, Nsize, n_cols_val, n_cols_err, *, rngs): #, n_params
-        self.linear1 = nnx.Linear(n_cols_val+n_cols_err, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #+n_cols_err+n_params ,kernel_init=nnx.initializers.he_normal()
-        self.ln1 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        self.linear2 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln2 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        # self.linear3 = nnx.Linear(Nsize, Nsize, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        # self.ln3 = nnx.LayerNorm(Nsize, rngs=rngs)
-
-        self.linear6 = nnx.Linear(Nsize, Nsize, use_bias=True,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-
-    def __call__(self, dropout, values, errors):
-        h = jnp.concatenate([values,errors], axis=-1)
-
-        h = self.linear1(h)
-        h = self.ln1(h)
-        h = nnx.gelu(h)
-        h = dropout(h)
-
-        h = self.linear2(h)
-        h = self.ln2(h)
-        h = nnx.gelu(h)
-        h = dropout(h)
-
-        # h = self.linear3(h)
-        # h = self.ln3(h)
-        # h = nnx.gelu(h)
-        # h = dropout(h)
-
-        return self.linear6(h)
-
-
-class Rho(nnx.Module):
-    def __init__(self, Nsize_p, Nsize_r, n_params, *, rngs):
-        self.linear1 = nnx.Linear(2*Nsize_p + n_params + 1, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs) #  + 1 #, kernel_init=nnx.initializers.he_normal()
-        self.ln1 = nnx.LayerNorm(Nsize_r, rngs=rngs)
-
-        self.linear2 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        self.ln2 = nnx.LayerNorm(Nsize_r, rngs=rngs)
-
-        # self.linear3 = nnx.Linear(Nsize_r, Nsize_r, use_bias=False,kernel_init=nnx.initializers.he_normal(), rngs=rngs)
-        # self.ln3 = nnx.LayerNorm(Nsize_r, rngs=rngs)
-
-        self.linear5 = nnx.Linear(Nsize_r, 1, use_bias=True, kernel_init=nnx.initializers.normal(), rngs=rngs) #, kernel_init=nnx.initializers.normal()
-
-    def __call__(self, dropout, pooled_features, params):
-        x = jnp.concatenate([pooled_features, params], axis=-1)
-
-        x = self.linear1(x)
-        x = self.ln1(x)
-        x = nnx.gelu(x)
-        x = dropout(x)
-
-        x = self.linear2(x)
-        x = self.ln2(x)
-        x = nnx.gelu(x)
-        x = dropout(x)
-
-        # x = self.linear3(x)
-        # x = self.ln3(x)
-        # x = nnx.gelu(x)
-        # x = dropout(x)
-
-        return self.linear5(x)
-
-
-class DeepSetClassifier(nnx.Module):
-    def __init__(self, phi_drop_rate, rho_drop_rate,
-                 Nsize_p, Nsize_r,
-                 n_cols, n_params, val_idx, err_idx, *, rngs):
-
-        self.rho_dropout = nnx.Dropout(rate=rho_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
-        self.phi_dropout = nnx.Dropout(rate=phi_drop_rate, rngs=nnx.Rngs(dropout=rngs()))
-
-        self.n_cols = n_cols
-        self.n_params = n_params
-
-        self.val_idx = jnp.asarray(val_idx)
-        self.err_idx = jnp.asarray(err_idx)
-
-        self.n_cols_val = len(val_idx)
-        self.n_cols_err = len(err_idx)
-
-        self.phi = Phi(Nsize_p, self.n_cols_val, self.n_cols_err, rngs=rngs)
-
-        self.rho = Rho(Nsize_p, Nsize_r, n_params, rngs=rngs)
-
-        self.pool_sum_norm = nnx.LayerNorm(Nsize_p, rngs=rngs)
-        self.pool_std_norm = nnx.LayerNorm(Nsize_p, rngs=rngs)
-
-    def __call__(self, input_data):
-
-        if input_data.ndim == 1:
-            input_data = input_data[None, :]
-
-        N = input_data.shape[0]
-        input_dim = input_data.shape[1]
-
-        M = (input_dim - self.n_params) // (self.n_cols + 1)
-
-        data = input_data[:, :M * self.n_cols].reshape(N, M, self.n_cols)
-
-        values = data[..., self.val_idx]
-        errors = data[..., self.err_idx]
-
-        mask = input_data[:, -M - self.n_params:-self.n_params]
-        theta = input_data[:, -self.n_params:]
-
-        # element-wise representation
-        features = self.phi(self.phi_dropout, values, errors)
-
-        # masked pooling
-        features = features * mask[..., None]
-
-        # add global mask statistics (kept from your design)
-        mask_sum = jnp.sum(mask, axis=1, keepdims=True)
-        mask_sum = jnp.where(mask_sum == 0, 1.0, mask_sum)
-        
-        pooled_sum = jnp.sum(features, axis=1) #/mask_sum
-        pooled_std = jnp.std(features, axis=1)
-
-        # pooled = jnp.concatenate(
-        #     [pooled, jnp.log(mask_sum)],
-        #     axis=-1
-        # )
-
-        # pooled = jnp.sum(features, axis=1)   # sum pooling
-        # pooled = [self.pool_sum_norm(pooled_sum), self.pool_std_norm(pooled_std)]       # stabilize magnitude
-        pooled = jnp.concatenate(
-            [self.pool_sum_norm(pooled_sum), self.pool_std_norm(pooled_std), jnp.log(mask_sum)],      # Rho still sees M
-            axis=-1
-        )
-
-        return self.rho(self.rho_dropout, pooled, theta)
 
 def train_loop(model,
                optimizer,

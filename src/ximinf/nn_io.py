@@ -8,7 +8,7 @@ ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
 import pathlib  # File path handling library
 
-import ximinf.nn_train as nntr
+from notebooks.nn_config import DeepSetClassifier
 
 def save_autoregressive_nn(models_per_group, path, model_config):
     """
@@ -76,11 +76,14 @@ def load_autoregressive_nn(path):
     for gconf in group_configs:
         n_params_visible = gconf["n_params_visible"]
 
-        abstract_model = nntr.DeepSetClassifier(
+        abstract_model = DeepSetClassifier(
             phi_drop_rate=shared["phi_dropout_rate"],
             rho_drop_rate=shared["rho_dropout_rate"],
             Nsize_p=shared["Nsize_p"],
             Nsize_r=shared["Nsize_r"],
+            depth_r=shared["depth_r"],
+            depth_p=shared["depth_p"],
+            depth_w=shared["depth_w"],
             n_cols=len(shared["columns"]),
             n_params=n_params_visible,
             val_idx=values_idx,

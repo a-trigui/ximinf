@@ -218,3 +218,6 @@ other/
 plots/
 
 tests/
+
+3_test_nn_tarp-cosmologix.ipynb
+9_epistemic_uncertainties.ipynb
