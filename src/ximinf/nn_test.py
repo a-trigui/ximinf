@@ -1,6 +1,92 @@
 import jax
 import jax.numpy as jnp
+import jax.scipy as jsp
 import ximinf.nn_inference as nninf 
+import ximinf.nn_train as nntr
+
+
+def evaluate_models_per_group(
+    models_per_group,
+    param_groups,
+    all_group_param_slices,
+    data_test,
+    mask_test,
+    M_norm_test,
+    batch_size=128,
+):
+    # Set models to evaluation mode
+    for model_g in models_per_group:
+        model_g.eval()  # disable dropout, etc.
+
+    metrics_per_group = []
+
+    # Loop over groups
+    for g, model_g in enumerate(models_per_group):
+
+        print(f"\n=== Evaluating model for group {g}: {param_groups[g]} ===")
+
+        chosen_test = all_group_param_slices[g]["chosen_test"]
+        labels_test = all_group_param_slices[g]["labels_test"]
+
+        num_samples = labels_test.shape[0]
+
+        all_logits = []
+        all_labels = []
+
+        for i in range(0, num_samples, batch_size):
+
+            xb = jnp.concatenate(
+                [
+                    data_test[i:i + batch_size],
+                    mask_test[i:i + batch_size],
+                    M_norm_test[i:i + batch_size],
+                    chosen_test[i:i + batch_size],
+                ],
+                axis=-1,
+            )
+
+            yb = labels_test[i:i + batch_size, None].astype(jnp.int32)
+
+            # Model predictions
+            logits = nntr.pred_step(model_g, xb)
+            all_logits.append(logits)
+            all_labels.append(yb)
+
+        # Merge batches
+        all_logits = jnp.concatenate(all_logits, axis=0)
+        all_labels = jnp.concatenate(all_labels, axis=0)
+
+        all_preds = (
+            jsp.special.expit(all_logits) > 0.5
+        ).astype(jnp.int32)
+
+        # Confusion matrix components
+        TP = jnp.sum((all_preds == 1) & (all_labels == 1))
+        TN = jnp.sum((all_preds == 0) & (all_labels == 0))
+        FP = jnp.sum((all_preds == 1) & (all_labels == 0))
+        FN = jnp.sum((all_preds == 0) & (all_labels == 1))
+
+        accuracy = (TP + TN) / (TP + TN + FP + FN)
+        precision = TP / (TP + FP + 1e-8)
+        sensitivity = TP / (TP + FN + 1e-8)
+        specificity = TN / (TN + FP + 1e-8)
+
+        print(
+            f"Group {g} ({param_groups[g]}): "
+            f"Accuracy={accuracy:.3f}, "
+            f"Precision={precision:.3f}, "
+            f"Sensitivity={sensitivity:.3f}, "
+            f"Specificity={specificity:.3f}"
+        )
+
+        metrics_per_group.append({
+            "accuracy": accuracy,
+            "precision": precision,
+            "sensitivity": sensitivity,
+            "specificity": specificity,
+        })
+
+    return metrics_per_group
 
 def sample_reference_point(rng_key, priors, param_names):
     """
