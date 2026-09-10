@@ -195,13 +195,13 @@ def train_loop(model,
             # Perform a training step
             loss, _ = loss_fn(model, (batch_data, batch_labels))
             accuracy = accuracy_fn(model, (batch_data, batch_labels))
-            epoch_train_loss += loss
+            epoch_train_loss += loss * len(batch_data)
             # Multiply batch accuracy by batch size to get number of correct predictions
             epoch_train_accuracy += accuracy * len(batch_data)
             train_step(model, optimizer, (batch_data, batch_labels))
         
         # Log the training metrics.
-        current_train_loss = epoch_train_loss / (len(train_data) / batch_size)
+        current_train_loss = epoch_train_loss / len(train_data)
         current_train_accuracy = epoch_train_accuracy / len(train_data)
         metrics_history['train_loss'].append(current_train_loss)
         # Compute overall epoch accuracy
@@ -219,11 +219,11 @@ def train_loop(model,
 
             loss, _ = loss_fn(model, (batch_data, batch_labels))
             accuracy = accuracy_fn(model, (batch_data, batch_labels))
-            epoch_val_loss += loss
+            epoch_val_loss += loss * len(batch_data)
             epoch_val_accuracy += accuracy * len(batch_data)
 
         # Log the val metrics.
-        current_val_loss = epoch_val_loss / (len(val_data) / batch_size)
+        current_val_loss = epoch_val_loss / len(val_data)
         current_val_accuracy = epoch_val_accuracy / len(val_data)
         metrics_history['val_loss'].append(current_val_loss)
         metrics_history['val_accuracy'].append(current_val_accuracy)
