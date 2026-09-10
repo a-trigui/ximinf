@@ -118,13 +118,12 @@ def log_prob_single_group(
     input_g = jnp.concatenate([xi, theta_visible], axis=-1)
     logits = model(input_g).squeeze()
 
-    prob = jax.nn.sigmoid(logits)
-    log_r = jnp.log(prob) - jnp.log1p(-prob)
+    # prob = jax.nn.sigmoid(logits)
+    # log_r = jnp.log(prob) - jnp.log1p(-prob)
 
     log_p = log_group_prior(theta, priors, group_names, group_indices)
 
-
-    return log_r + log_p
+    return logits + log_p #+ log_r 
 
 def log_prob_fn_groups(
     theta,
