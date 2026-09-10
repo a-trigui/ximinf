@@ -31,6 +31,9 @@ def save_autoregressive_nn(models_per_group, path, model_config):
         _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
         checkpointer.save(ckpt_dir / f"state_group_{g}", state)
 
+    # checkpointer.wait_until_finished()
+    checkpointer.close()
+
     # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:
         pickle.dump(model_config, f)
@@ -81,7 +84,6 @@ def load_autoregressive_nn(path, model_cls):
             Nsize_r=shared["Nsize_r"],
             depth_r=shared["depth_r"],
             depth_p=shared["depth_p"],
-            depth_w=shared["depth_w"],
             n_cols=len(shared["columns"]),
             n_params=n_params_visible,
             val_idx=values_idx,
@@ -89,13 +91,13 @@ def load_autoregressive_nn(path, model_cls):
             rngs=nnx.Rngs(0),
         )
         
-        graphdef, rngkey, rngcount, _ = nnx.split(
+        graphdef, rngkey, rngcount, abstract_state = nnx.split(
             abstract_model, nnx.RngKey, nnx.RngCount, ...
         )
-
-        # Restore parameters
+        
         state = checkpointer.restore(
-            ckpt_dir / f"state_group_{gconf['group_id']}"
+            ckpt_dir / f"state_group_{gconf['group_id']}",
+            target=abstract_state,
         )
 
         model = nnx.merge(graphdef, rngkey, rngcount, state)

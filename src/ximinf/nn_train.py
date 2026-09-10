@@ -7,6 +7,7 @@ import subprocess
 import jax  # Automatic differentiation library
 import jax.numpy as jnp  # Numpy for JAX
 from flax import nnx  # The Flax NNX API
+import numpy as np
 
 # Optimization
 import optax  # Optimisers for JAX
@@ -206,6 +207,8 @@ def train_loop(model,
         # Compute overall epoch accuracy
         metrics_history['train_accuracy'].append(current_train_accuracy)
 
+        model.eval()
+
         epoch_val_loss = 0
         epoch_val_accuracy = 0
 
@@ -261,14 +264,14 @@ def train_loop(model,
             # Loss subplot
             ax1.set_title(f'Loss for M:{M} and N:{N} with patience:{patience}')
             for dataset in ('train', 'val'):
-                ax1.plot(metrics_history[f'{dataset}_loss'], label=f'{dataset}_loss')
+                ax1.plot(np.arange(1,epoch+2,1), metrics_history[f'{dataset}_loss'], label=f'{dataset}_loss')
             ax1.legend()
             ax1.set_yscale("log")
 
             # Accuracy subplot
             ax2.set_title('Accuracy')
             for dataset in ('train', 'val'):
-                ax2.plot(metrics_history[f'{dataset}_accuracy'], label=f'{dataset}_accuracy')
+                ax2.plot(np.arange(1,epoch+2,1), metrics_history[f'{dataset}_accuracy'], label=f'{dataset}_accuracy')
             ax2.legend()
 
             plt.show()
