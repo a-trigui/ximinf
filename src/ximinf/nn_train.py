@@ -261,7 +261,7 @@ def train_loop(model,
             ax1.set_yscale("log")
 
             # Accuracy subplot
-            ax2.set_title(f'Accuracy : {metrics_history["val_accuracy"][-1]}')
+            ax2.set_title(f'Accuracy : {metrics_history["val_accuracy"][-1]:.3f}')
             for dataset in ('train', 'val'):
                 ax2.plot(np.arange(1,epoch+2,1), metrics_history[f'{dataset}_accuracy'], label=f'{dataset}_accuracy')
             ax2.legend()

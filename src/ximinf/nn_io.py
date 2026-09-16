@@ -6,7 +6,7 @@ from flax import nnx
 import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
-import pathlib  # File path handling library
+from pathlib import Path
 import shutil
 
 def save_autoregressive_nn(models_per_group, path, model_config):
@@ -35,7 +35,7 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     # checkpointer.wait_until_finished()
     checkpointer.close()
 
-    shutil.copy("nn_config.py", path / "nn_config.py")
+    shutil.copy("nn_config.py", Path(path) / "nn_config.py")
 
     # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:
@@ -57,7 +57,7 @@ def load_autoregressive_nn(path, model_cls):
     model_config : dict
         Loaded configuration dictionary.
     """
-    ckpt_dir = pathlib.Path(path).resolve()
+    ckpt_dir = Path(path).resolve()
     if not ckpt_dir.exists():
         raise ValueError(f"Checkpoint directory {ckpt_dir} does not exist.")
 
