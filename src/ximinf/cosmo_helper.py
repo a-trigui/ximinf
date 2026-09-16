@@ -121,6 +121,6 @@ def distmod(z, cosmo: dict, package: str = "cosmologix"):
     elif package == "cosmologix":
         from cosmologix import distances as cosmologix_distances
         cx_params = to_cosmologix(cosmo)
-        return cosmologix_distances.mu(cx_params, z).astype(jnp.float32)
+        return cosmologix_distances.mu(cx_params, z, nstep=10_000).astype(jnp.float32)
     else:
         raise ValueError("package must be 'astropy' or 'cosmologix'")

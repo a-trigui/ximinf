@@ -7,6 +7,7 @@ import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
 import pathlib  # File path handling library
+import shutil
 
 def save_autoregressive_nn(models_per_group, path, model_config):
     """
@@ -33,6 +34,8 @@ def save_autoregressive_nn(models_per_group, path, model_config):
 
     # checkpointer.wait_until_finished()
     checkpointer.close()
+
+    shutil.copy("nn_config.py", path / "nn_config.py")
 
     # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:

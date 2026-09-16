@@ -6,9 +6,6 @@ from pathlib import Path
 import shutil
 import h5py
 
-import ximinf.nn_train as nntr
-
-import jax.scipy as jsp
 from ximinf import cosmo_helper as ch
 
 import h5py
@@ -44,7 +41,6 @@ def save_simulation(
     priors,
     base_dir=Path("../data/SIM"),
     sim_config_path="sim_config.py",
-    nn_config_path="nn_config.py",
 ):
     # Base directory
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -66,7 +62,6 @@ def save_simulation(
 
     # Copy configuration file
     shutil.copy(sim_config_path, sim_dir / "sim_config.py")
-    shutil.copy(nn_config_path, sim_dir / "nn_config.py")
 
     # HDF5 file path
     save_path = sim_dir / "simulations.h5"

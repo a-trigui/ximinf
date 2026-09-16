@@ -170,7 +170,6 @@ def train_loop(model,
     """
 
     # Initialise stopping criteria
-    best_train_loss = jnp.inf
     best_val_loss = jnp.inf
     strikes = 0
 
@@ -227,20 +226,13 @@ def train_loop(model,
         current_val_accuracy = epoch_val_accuracy / len(val_data)
         metrics_history['val_loss'].append(current_val_loss)
         metrics_history['val_accuracy'].append(current_val_accuracy)
-        
-        # Early Stopping Check
+
+        # Early Stopping Check V2
         if current_val_loss < best_val_loss:
             best_val_loss = current_val_loss  # Update best val loss
             strikes = 0
-        # elif current_val_accuracy > best_val_accuracy:
-        #     best_val_accuracy = current_val_accuracy  # Update best val accuracy
-        #     strikes = 0
-        elif current_train_loss >= best_train_loss:
-            strikes = 0
-        elif current_val_loss > best_val_loss and current_train_loss < best_train_loss:
+        else:
             strikes += 1
-        elif current_train_loss < best_train_loss:
-            best_train_loss = current_train_loss # Update best train loss
 
         # -------------------------------------------------
         # Gate early stopping on minimum accuracy
