@@ -89,8 +89,6 @@ def load_autoregressive_nn(path, model_cls):
             depth_p=shared["depth_p"],
             n_cols=len(shared["columns"]),
             n_params=n_params_visible,
-            val_idx=values_idx,
-            err_idx=errors_idx,
             rngs=nnx.Rngs(0),
         )
         

@@ -31,15 +31,19 @@ API Reference
 .. automodule:: ximinf.nn_inference
     :members:
     :undoc-members:
+    :show-inheritance:
 
 .. automodule:: ximinf.nn_train
     :members:
     :undoc-members:
+    :show-inheritance:
 
 .. automodule:: ximinf.nn_test
     :members:
     :undoc-members:
+    :show-inheritance:
 
 .. automodule:: ximinf.selection_effects
     :members:
     :undoc-members:
+    :show-inheritance:
