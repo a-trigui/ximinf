@@ -13,6 +13,20 @@ import numpy as np
 import optax  # Optimisers for JAX
 
 def print_gpu_memory():
+    """
+    Print the currently used and total GPU memory reported by ``nvidia-smi``.
+
+    Returns
+    -------
+    None
+        The memory usage is printed to standard output.
+
+    Notes
+    -----
+    This function relies on the NVIDIA System Management Interface
+    (``nvidia-smi``) being installed and available on the system path. It
+    queries memory usage in MiB without units in the command output.
+    """
     result = subprocess.run(
         ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,nounits,noheader"],
         capture_output=True, text=True
@@ -21,6 +35,31 @@ def print_gpu_memory():
     print(f"GPU memory used: {used} MB / {total} MB")
 
 def setup_jax_device():
+    """
+    Detect an available JAX accelerator and set it as the default device.
+
+    The function checks for accelerator backends in the order ``"METAL"``,
+    ``"cuda"``, and ``"gpu"``. If none are available, it falls back to the
+    first CPU device.
+
+    Returns
+    -------
+    device : jax.Device
+        Selected JAX device used as the default device.
+    backend : str
+        Name of the JAX backend associated with the selected default device.
+    cpu : jax.Device
+        First available CPU device.
+    gpu : jax.Device or None
+        First detected accelerator device, or ``None`` if no accelerator
+        backend is available.
+
+    Notes
+    -----
+    GPU memory usage is printed when a CUDA device is selected. The selected
+    device is registered using ``jax.default_device`` before querying the
+    default backend.
+    """
     # Try GPU backends in priority order
     gpu = None
     for backend in ("METAL", "cuda", "gpu"):
@@ -54,23 +93,28 @@ def setup_jax_device():
 @nnx.jit
 def loss_fn(model, batch):
     """
-    Compute the total loss, which is the sum of the data loss and L2 regularization.
+    Compute the binary cross-entropy loss for a batch.
 
     Parameters
     ----------
-    model : nn.Module
-        The neural network model to compute predictions.
+    model : nnx.Module
+        Neural network model used to compute the prediction logits.
     batch : tuple
-        A tuple containing the input batch `x_batch` and corresponding `labels`.
-    l2_reg : float, optional
-        The regularization coefficient for L2 regularization (default is 1e-5).
+        Tuple containing ``x_batch`` and ``labels``, where ``x_batch`` is the
+        input batch and ``labels`` contains the corresponding binary targets.
 
     Returns
     -------
-    tuple
-        A tuple containing:
-        - float: the total loss (data loss + L2 regularization)
-        - array: the predicted logits
+    loss : jax.Array
+        Mean binary cross-entropy loss over the batch.
+    logits : jax.Array
+        Raw model logits for the input batch.
+
+    Notes
+    -----
+    The binary cross-entropy is computed directly from the logits using
+    ``optax.sigmoid_binary_cross_entropy``. No L2 regularization term is
+    currently included in the loss.
     """
 
     x_batch, labels = batch
@@ -81,22 +125,29 @@ def loss_fn(model, batch):
     return loss, logits
 
 @nnx.jit
-# Define the accuracy function
 def accuracy_fn(model, batch):
     """
-    Compute accuracy by comparing predicted and true labels.
+    Compute binary classification accuracy for a batch.
 
     Parameters
     ----------
-    model : nn.Module
-        The neural network model to compute predictions.
+    model : nnx.Module
+        Neural network model used to compute prediction logits.
     batch : tuple
-        A tuple containing the input batch `x_batch` and corresponding `labels`.
+        Tuple containing ``x_batch`` and ``labels``, where ``x_batch`` is the
+        input batch and ``labels`` contains the corresponding binary targets.
 
     Returns
     -------
-    float
-        Accuracy score (proportion of correct predictions).
+    accuracy : jax.Array
+        Fraction of samples for which the predicted binary class matches the
+        target class.
+
+    Notes
+    -----
+    Predictions are obtained by applying a sigmoid to the model logits and
+    thresholding the resulting probabilities at 0.5. Target labels are
+    similarly interpreted using a threshold of 0.5.
     """
 
     x_batch, labels = batch
@@ -107,18 +158,30 @@ def accuracy_fn(model, batch):
     return accuracy
 
 @nnx.jit
-def train_step(model, optimizer: nnx.Optimizer, batch):
+def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch):
     """
-    Perform a single training step: compute gradients and update model parameters.
+    Perform one optimization step on a training batch.
 
     Parameters
     ----------
-    model : nn.Module
-        The model to be trained.
+    model : nnx.Module
+        Neural network model whose parameters are optimized.
     optimizer : nnx.Optimizer
-        The optimizer used to update model parameters.
+        NNX optimizer used to update the model parameters.
     batch : tuple
-        A tuple containing the input batch `x_batch` and corresponding `labels`.
+        Tuple containing ``x_batch`` and ``labels`` for the current training
+        batch.
+
+    Returns
+    -------
+    None
+        The model and optimizer are updated in place.
+
+    Notes
+    -----
+    The loss and its gradients are computed using
+    ``nnx.value_and_grad``. The optimizer then applies the gradients directly
+    to the model parameters.
     """
 
     grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
@@ -130,43 +193,117 @@ def train_step(model, optimizer: nnx.Optimizer, batch):
 @nnx.jit
 def pred_step(model, x_batch):
     """
-    Perform a prediction step: compute model logits for a given input batch.
+    Compute model logits for an input batch.
 
     Parameters
     ----------
-    model : nn.Module
-        The model used for prediction.
+    model : nnx.Module
+        Neural network model used to generate predictions.
     x_batch : array-like
-        Input data batch for which predictions are to be made.
+        Input data batch.
 
     Returns
     -------
-    array
-        The model's logits for the input batch.
+    logits : jax.Array
+        Raw model logits for the input batch.
+
+    Notes
+    -----
+    The returned values are logits and are not passed through a sigmoid.
     """
   
     logits = model(x_batch)
     return logits
 
-def train_loop(model,
-               optimizer,
-               train_data,
-               train_labels,
-               val_data,
-               val_labels,
-               key,
-               epochs,
-               batch_size,
-               patience,
-               metrics_history,
-               M,
-               N,
-               gpu,
-               group_id,
-               group_params,
-               plot_flag=False):
+def train_loop(
+    model,
+    optimizer,
+    train_data,
+    train_labels,
+    val_data,
+    val_labels,
+    key,
+    epochs,
+    batch_size,
+    patience,
+    metrics_history,
+    M,
+    N,
+    gpu,
+    group_id,
+    group_params,
+    plot_flag=False,
+):
     """
-    Train loop with early stopping and optional plotting.
+    Train a neural network with validation monitoring and early stopping.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Neural network model to train.
+    optimizer : nnx.Optimizer
+        Optimizer used to update the model parameters.
+    train_data : jax.Array
+        Training input data.
+    train_labels : jax.Array
+        Binary labels corresponding to `train_data`.
+    val_data : jax.Array
+        Validation input data.
+    val_labels : jax.Array
+        Binary labels corresponding to `val_data`.
+    key : jax.Array
+        JAX pseudo-random number generator key used to shuffle the training
+        data at each epoch.
+    epochs : int
+        Maximum number of training epochs.
+    batch_size : int
+        Number of samples processed in each batch.
+    patience : int
+        Number of consecutive epochs without validation-loss improvement
+        allowed before early stopping, provided the validation accuracy has
+        reached the minimum threshold.
+    metrics_history : dict
+        Dictionary containing lists used to store training and validation
+        losses and accuracies. The keys ``"train_loss"``,
+        ``"train_accuracy"``, ``"val_loss"``, and ``"val_accuracy"`` are
+        expected.
+    M : int
+        Simulation or dataset parameter used for plotting and display.
+    N : int
+        Dataset parameter used for plotting and display.
+    gpu : jax.Device
+        Device to which each training and validation batch is transferred.
+    group_id : int or str
+        Identifier of the parameter group currently being trained.
+    group_params : object
+        Parameter names or configuration associated with the current group,
+        used for plotting and display.
+    plot_flag : bool, optional
+        Whether to display training and validation loss and accuracy plots
+        after each epoch. Default is ``False``.
+
+    Returns
+    -------
+    model : nnx.Module
+        Trained neural network model.
+    metrics_history : dict
+        Updated dictionary containing the training and validation metrics
+        accumulated over the completed epochs.
+    key : jax.Array
+        Updated JAX random number generator key.
+
+    Notes
+    -----
+    Training samples are randomly permuted at the beginning of each epoch.
+    Batches are transferred to `gpu` before computing the loss and updating
+    the model.
+
+    Early stopping monitors the validation loss. The patience counter is
+    reset whenever the validation loss improves. Early stopping is activated
+    only once the validation accuracy has reached 0.7.
+
+    If ``plot_flag`` is ``True``, the training and validation loss and
+    accuracy curves are displayed after each epoch.
     """
 
     # Initialise stopping criteria

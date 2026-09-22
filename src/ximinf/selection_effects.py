@@ -3,29 +3,50 @@ from scipy.special import expit
 
 def apply_malmquist_bias(results, loc=18.8, scale=4.5, rng=None):
     """
-    Apply a stochastic magnitude-limit selection using a sigmoid function.
+    Apply a stochastic magnitude-limit selection to simulated supernovae.
 
-    Each SN i is selected with probability:
-        P_detect = 1 - expit((mag_i - loc) * scale)
-
-    Rejected SNe are removed (no zero padding).
+    Each supernova is independently detected with probability given by a
+    sigmoid selection function. Rejected supernovae are removed rather than
+    represented by zero padding.
 
     Parameters
     ----------
     results : list of dict
-        Each element is output of `simulate_one`.
-    loc : float
-        Sigmoid midpoint.
-    scale : float
-        Sigmoid steepness.
-    rng : np.random.Generator, optional
+        Simulation results, where each dictionary contains arrays or
+        array-like values for the simulated supernova properties. The
+        ``"magobs"`` entry is used to compute the detection probability.
+    loc : float, optional
+        Midpoint of the magnitude-selection sigmoid. At ``magobs == loc``,
+        the detection probability is 0.5. Default is ``18.8``.
+    scale : float, optional
+        Steepness of the magnitude-selection sigmoid. Larger values produce
+        a sharper transition around `loc`. Default is ``4.5``.
+    rng : numpy.random.Generator, optional
+        Random number generator used for the Bernoulli selection. If ``None``,
+        a new default generator is created.
 
     Returns
     -------
     biased_results : list of dict
-        Same structure as input but containing only detected SNe.
-    masks : list of np.ndarray
-        Boolean selection masks per simulation.
+        Simulation results after applying the magnitude selection. Each
+        dictionary has the same keys as the corresponding input dictionary,
+        but only detected supernovae are retained.
+    masks : list of numpy.ndarray
+        Boolean selection masks for each simulation. ``True`` entries
+        correspond to detected supernovae.
+
+    Notes
+    -----
+    The detection probability for a supernova with observed magnitude
+    ``mag`` is
+
+    ``1 - expit((mag - loc) * scale)``.
+
+    The selection is stochastic: a uniform random variate is drawn for each
+    supernova and compared with its detection probability. The resulting
+    arrays are compressed directly using the selection mask, so the number
+    of supernovae can differ between simulations and no zero padding is
+    introduced.
     """
 
     if rng is None:

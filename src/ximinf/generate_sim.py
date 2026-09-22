@@ -306,7 +306,7 @@ def simulate_one(
             rng = np.random.default_rng()
         df = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
 
-    if out_df == True:
+    if out_df:
         return df
     else:
         return {col: list(df[col]) for col in cols if col in df}
