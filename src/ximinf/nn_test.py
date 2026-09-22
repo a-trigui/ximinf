@@ -14,6 +14,71 @@ def evaluate_models_per_group(
     M_norm_test,
     batch_size=128,
 ):
+    """
+    Evaluate binary classifiers independently for each parameter group.
+
+    Each model is evaluated on the corresponding test subset defined by
+    ``all_group_param_slices``. The input features are constructed by
+    concatenating the test data, mask, normalized magnitude information,
+    and the selected parameters for the group. Predictions are obtained
+    from the model logits using a sigmoid threshold of 0.5.
+
+    For each parameter group, the function computes the accuracy, precision,
+    sensitivity (true positive rate), and specificity (true negative rate)
+    from the resulting confusion matrix.
+
+    Parameters
+    ----------
+    models_per_group : sequence
+        Sequence of trained classification models, with one model
+        corresponding to each parameter group.
+
+    param_groups : sequence
+        Labels or identifiers describing the parameter group associated with
+        each model.
+
+    all_group_param_slices : sequence of dict
+        Group-specific test-set information. Each element must contain
+        ``"chosen_test"`` and ``"labels_test"`` entries corresponding to the
+        selected parameters and binary labels for that group.
+
+    data_test : jax.Array
+        Test data used as model input.
+
+    mask_test : jax.Array
+        Test-set mask values concatenated with the input data.
+
+    M_norm_test : jax.Array
+        Normalized test-set magnitude information concatenated with the model
+        inputs.
+
+    batch_size : int, optional
+        Number of test samples processed in each batch. Default is 128.
+
+    Returns
+    -------
+    metrics_per_group : list of dict
+        List containing one dictionary per parameter group. Each dictionary
+        contains the following metrics:
+
+        ``"accuracy"``
+            Fraction of correctly classified samples.
+
+        ``"precision"``
+            Fraction of predicted positive samples that are true positives.
+
+        ``"sensitivity"``
+            Fraction of positive samples correctly identified by the model.
+
+        ``"specificity"``
+            Fraction of negative samples correctly identified by the model.
+
+    Notes
+    -----
+    The sigmoid probability is thresholded at 0.5 to obtain binary
+    predictions. A small value of ``1e-8`` is added to the denominators of
+    precision, sensitivity, and specificity to avoid division by zero.
+    """
     # Set models to evaluation mode
     for model_g in models_per_group:
         model_g.eval()  # disable dropout, etc.
@@ -90,8 +155,40 @@ def evaluate_models_per_group(
 
 def sample_reference_point(rng_key, priors, param_names):
     """
-    Sample a reference point uniformly over parameter ranges,
-    consistent with the new prior structure.
+    Sample a parameter-space reference point uniformly from the prior ranges.
+
+    Each parameter is sampled independently from a uniform distribution
+    between the lower and upper bounds specified in ``priors``. The function
+    also returns an updated JAX random key for subsequent random-number
+    generation.
+
+    Parameters
+    ----------
+    rng_key : jax.Array
+        JAX PRNG key used to generate the random sample.
+
+    priors : dict
+        Dictionary containing the prior definition for each parameter.
+        For every parameter in ``param_names``, ``priors[name]["range"]``
+        must contain the lower and upper bounds of the prior interval.
+
+    param_names : sequence of str
+        Names of the parameters to sample. The ordering determines the
+        ordering of the returned parameter vector.
+
+    Returns
+    -------
+    rng_key : jax.Array
+        Updated JAX PRNG key.
+
+    theta : jax.Array
+        One-dimensional array containing the sampled parameter values,
+        ordered according to ``param_names``.
+
+    Notes
+    -----
+    The sampling is uniform in the parameterization defined by the prior
+    ranges. No normalization using ``param_stats`` is applied.
     """
     rng_key, subkey = jax.random.split(rng_key)
 
@@ -119,6 +216,83 @@ def one_sample_step_groups(
     n_warmup,
     n_samples,
 ):
+    
+    """
+    Perform posterior sampling for one simulated observation and compute
+    its TARP rank statistic.
+
+    A reference point is first sampled uniformly from the prior parameter
+    ranges. The posterior distribution conditioned on ``xi`` is then
+    sampled using the group-specific neural-network inference models.
+    The TARP statistic is computed as the fraction of posterior samples
+    lying closer to the reference point than the true parameter
+    ``theta_star``.
+
+    Parameters
+    ----------
+    rng_key : jax.Array
+        JAX PRNG key used for reference-point generation and posterior
+        sampling.
+
+    xi : jax.Array
+        Observed or simulated data conditioned upon when evaluating the
+        posterior.
+
+    theta_star : jax.Array
+        True parameter values associated with ``xi``.
+
+    priors : dict
+        Prior definitions for the model parameters.
+
+    param_names : sequence of str
+        Names of the inferred parameters. The ordering must be consistent
+        with the parameter vectors used by the inference models.
+
+    models_per_group : sequence
+        Collection of trained neural-network inference models, with one
+        model associated with each parameter group.
+
+    visible_indices : sequence
+        Indices specifying which parameters are visible to the corresponding
+        group-specific inference models.
+
+    group_indices : sequence
+        Indices defining the parameter grouping used by the inference
+        models.
+
+    group_names_list : sequence
+        Names identifying the parameter groups.
+
+    param_stats : dict
+        Statistics used to transform posterior samples back to the original
+        parameterization. For each parameter, ``param_stats[name]`` must
+        contain ``"mu"`` and ``"sigma"``.
+
+    n_warmup : int
+        Number of warm-up iterations used by the posterior sampler.
+
+    n_samples : int
+        Number of posterior samples to draw after warm-up.
+
+    Returns
+    -------
+    f_val : jax.Array
+        TARP rank statistic, defined as the fraction of posterior samples
+        whose Euclidean distance from the sampled reference point is smaller
+        than the distance between ``theta_star`` and the same reference
+        point.
+
+    posterior_unnormed : jax.Array
+        Posterior samples transformed from the normalized parameterization
+        back to the original parameterization using ``param_stats``.
+
+    Notes
+    -----
+    The distance used for the TARP statistic is computed directly in the
+    parameter coordinates represented by ``theta_star`` and ``theta_r0``.
+    The returned posterior samples, however, are transformed back to the
+    original parameterization before being returned.
+    """
     rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 3)
 
     _, theta_r0 = sample_reference_point(key_r0, priors, param_names)
@@ -171,6 +345,88 @@ def compute_ecp_tarp_groups(
     n_samples,
     rng_key,
 ):
+    """
+    Compute empirical coverage probabilities using TARP for grouped models.
+
+    The function evaluates the TARP statistic for each simulated observation
+    and its corresponding true parameter value using ``jax.lax.scan``.
+    Empirical coverage probabilities are then computed for each requested
+    credibility level.
+
+    Parameters
+    ----------
+    models_per_group : sequence
+        Collection of trained neural-network inference models, with one
+        model associated with each parameter group.
+
+    x_list : jax.Array
+        Collection of simulated observations used to evaluate posterior
+        coverage.
+
+    theta_star_list : jax.Array
+        True parameter values corresponding to the observations in
+        ``x_list``.
+
+    alpha_list : sequence of float
+        Significance levels at which empirical coverage is evaluated.
+        For each ``alpha``, the function computes the fraction of TARP
+        statistics satisfying ``f < 1 - alpha``.
+
+    priors : dict
+        Prior definitions for the inferred parameters.
+
+    param_names : sequence of str
+        Names of the inferred parameters.
+
+    visible_indices : sequence
+        Indices specifying the parameters visible to each group-specific
+        inference model.
+
+    group_indices : sequence
+        Indices defining the parameter grouping used by the inference
+        models.
+
+    group_names_list : sequence
+        Names identifying the parameter groups.
+
+    param_stats : dict
+        Statistics used to transform posterior samples from the normalized
+        parameterization to the original parameterization. Each parameter
+        must have ``"mu"`` and ``"sigma"`` entries.
+
+    n_warmup : int
+        Number of warm-up iterations used for each posterior sample.
+
+    n_samples : int
+        Number of posterior samples generated for each observation.
+
+    rng_key : jax.Array
+        JAX PRNG key used for all random sampling operations.
+
+    Returns
+    -------
+    ecp_vals : list of jax.Array
+        Empirical coverage probabilities corresponding to the values in
+        ``alpha_list``. Each value is the fraction of TARP statistics
+        satisfying ``f < 1 - alpha``.
+
+    f_vals : jax.Array
+        TARP statistic for each observation in ``x_list``.
+
+    posteriors : jax.Array
+        Posterior samples obtained for each observation.
+
+    rng_key : jax.Array
+        Updated JAX PRNG key after all sampling operations.
+
+    Notes
+    -----
+    Posterior sampling is performed sequentially over the observations using
+    ``jax.lax.scan``. The resulting TARP statistics can be used to construct
+    empirical coverage curves by comparing the values in ``f_vals`` with
+    the expected uniform distribution.
+    """
+
     def scan_step(rng_key, xi_theta):
         xi, theta_star = xi_theta
         rng_key, subkey = jax.random.split(rng_key)
