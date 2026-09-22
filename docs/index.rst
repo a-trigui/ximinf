@@ -1,9 +1,11 @@
 Ximinf Documentation
 ====================
 
-Welcome to **ximinf** — Simulation-Based Inference of Cosmological Parameters in JAX using Type Ia Supernovae.
+**ximinf** is a JAX-based framework for simulation-based inference of
+cosmological parameters from type Ia supernovae.
 
-This documentation will guide you through installation, usage, and the API reference.
+The documentation provides an overview of the package, installation
+instructions, usage examples, and the API reference.
 
 Contents
 --------
@@ -12,12 +14,25 @@ Contents
    :maxdepth: 2
    :caption: "Documentation"
 
-Quickstart
-----------
+Installation
+------------
+
+Install **ximinf** with pip:
+
+.. code-block:: bash
+
+   pip install ximinf
+
+Then import the package in your python files:
 
 .. code-block:: python
 
-    import ximinf
+   import ximinf
+
+Examples
+--------
+
+A complete pipeline can be found in the notebook folder.
 
 
 API Reference
