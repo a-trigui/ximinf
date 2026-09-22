@@ -285,13 +285,6 @@ def one_sample_step_groups(
     posterior_unnormed : jax.Array
         Posterior samples transformed from the normalized parameterization
         back to the original parameterization using ``param_stats``.
-
-    Notes
-    -----
-    The distance used for the TARP statistic is computed directly in the
-    parameter coordinates represented by ``theta_star`` and ``theta_r0``.
-    The returned posterior samples, however, are transformed back to the
-    original parameterization before being returned.
     """
     rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 3)
 
@@ -418,13 +411,6 @@ def compute_ecp_tarp_groups(
 
     rng_key : jax.Array
         Updated JAX PRNG key after all sampling operations.
-
-    Notes
-    -----
-    Posterior sampling is performed sequentially over the observations using
-    ``jax.lax.scan``. The resulting TARP statistics can be used to construct
-    empirical coverage curves by comparing the values in ``f_vals`` with
-    the expected uniform distribution.
     """
 
     def scan_step(rng_key, xi_theta):

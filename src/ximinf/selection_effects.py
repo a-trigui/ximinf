@@ -41,12 +41,6 @@ def apply_malmquist_bias(results, loc=18.8, scale=4.5, rng=None):
     ``mag`` is
 
     ``1 - expit((mag - loc) * scale)``.
-
-    The selection is stochastic: a uniform random variate is drawn for each
-    supernova and compared with its detection probability. The resulting
-    arrays are compressed directly using the selection mask, so the number
-    of supernovae can differ between simulations and no zero padding is
-    introduced.
     """
 
     if rng is None:

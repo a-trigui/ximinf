@@ -113,8 +113,7 @@ def loss_fn(model, batch):
     Notes
     -----
     The binary cross-entropy is computed directly from the logits using
-    ``optax.sigmoid_binary_cross_entropy``. No L2 regularization term is
-    currently included in the loss.
+    ``optax.sigmoid_binary_cross_entropy``.
     """
 
     x_batch, labels = batch
@@ -176,12 +175,6 @@ def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch):
     -------
     None
         The model and optimizer are updated in place.
-
-    Notes
-    -----
-    The loss and its gradients are computed using
-    ``nnx.value_and_grad``. The optimizer then applies the gradients directly
-    to the model parameters.
     """
 
     grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
@@ -291,19 +284,6 @@ def train_loop(
         accumulated over the completed epochs.
     key : jax.Array
         Updated JAX random number generator key.
-
-    Notes
-    -----
-    Training samples are randomly permuted at the beginning of each epoch.
-    Batches are transferred to `gpu` before computing the loss and updating
-    the model.
-
-    Early stopping monitors the validation loss. The patience counter is
-    reset whenever the validation loss improves. Early stopping is activated
-    only once the validation accuracy has reached 0.7.
-
-    If ``plot_flag`` is ``True``, the training and validation loss and
-    accuracy curves are displayed after each epoch.
     """
 
     # Initialise stopping criteria

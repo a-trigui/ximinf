@@ -177,11 +177,6 @@ def inference_loop(initial_state, kernel, num_samples, rng_key):
     positions : jax.Array
         Sampled parameter positions collected along the MCMC chain. The
         leading dimension has length `num_samples`.
-
-    Notes
-    -----
-    The individual MCMC transitions are evaluated with ``jax.lax.scan`` and
-    the transition function is JIT-compiled with ``jax.jit``.
     """
     @jax.jit
     def one_step(state, rng_key):
@@ -236,9 +231,7 @@ def log_prob_single_group(
 
     Notes
     -----
-    The neural-network output is used directly as a log-density contribution.
-    The commented-out code shows the alternative likelihood-ratio
-    interpretation based on converting the classifier output to log odds.
+    The likelihood-trick and the output sigmoid are inverse function of each other. They cancel and we can directly use the logits.
     """
     input_g = jnp.concatenate([xi, theta_visible], axis=-1)
     logits = model(input_g).squeeze()
@@ -285,12 +278,6 @@ def log_prob_fn_groups(
     log_sum : jax.Array
         Joint log-probability obtained by summing the group-specific neural
         network contributions and log-prior terms.
-
-    Notes
-    -----
-    Each group model receives `xi` concatenated with the subset of `theta`
-    specified by its corresponding entry in `visible_indices`. The prior
-    contribution for each group is evaluated using `group_indices`.
     """
     xi = xi.reshape(1, -1)
     log_sum = 0.0
@@ -369,12 +356,7 @@ def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     rng_key : jax.Array
         Updated JAX random key after warmup and posterior sampling.
     positions : jax.Array
-        Posterior parameter samples with leading dimension `n_samples`.
-
-    Notes
-    -----
-    The NUTS kernel is first adapted using BlackJAX window adaptation.
-    Sampling then starts from the final state of the warmup procedure.
+        Posterior parameter samples with leading dimension `n_samples`..
     """
     rng_key, kernel, warmup_state = build_kernel(log_prob, init_position, n_warmup, rng_key)
     rng_key, positions = inference_loop(warmup_state, kernel, n_samples, rng_key)
