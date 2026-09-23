@@ -287,7 +287,7 @@ def train_loop(
     """
 
     # Initialise stopping criteria
-    best_val_loss = jnp.inf
+    best_val_loss = np.inf
     strikes = 0
 
     model.train()
@@ -344,9 +344,14 @@ def train_loop(
         metrics_history['val_loss'].append(current_val_loss)
         metrics_history['val_accuracy'].append(current_val_accuracy)
 
-        # Early Stopping Check V2
-        if current_val_loss < best_val_loss:
-            best_val_loss = current_val_loss  # Update best val loss
+        min_delta = 1e-4
+        
+        # Early Stopping Check V3
+        relative_improvement = (
+            best_val_loss - current_val_loss
+        ) / jnp.abs(best_val_loss)
+        
+        if relative_improvement > min_delta:
             strikes = 0
         else:
             strikes += 1
@@ -361,6 +366,9 @@ def train_loop(
                     f"(accuracy >= 0.7 and {patience} strikes) \n"
                 )
                 break
+
+        if current_val_loss < best_val_loss:
+            best_val_loss = current_val_loss
 
         # Plotting (optional)
         if plot_flag and epoch % 1 == 0:
