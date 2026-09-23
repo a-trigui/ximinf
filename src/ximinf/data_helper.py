@@ -387,7 +387,7 @@ def _as_result_list(results):
     return list(results), len(results)
 
 
-def filter_and_pad(results, columns, get_quality_mask_fn):
+def filter_and_pad(results, columns, get_quality_mask_fn=None):
     """
     Apply a quality selection to simulation results and pad them to a common size.
 
@@ -433,11 +433,15 @@ def filter_and_pad(results, columns, get_quality_mask_fn):
     filtered_results = []
     sizes = []
     for sim_data in results_list:
-        quality_mask = get_quality_mask_fn(sim_data)
-        filtered_data = {
-            key: np.asarray(value)[quality_mask]
-            for key, value in sim_data.items()
-        }
+        if get_quality_mask_fn is not None:
+            quality_mask = get_quality_mask_fn(sim_data)
+            filtered_data = {
+                key: np.asarray(value)[quality_mask]
+                for key, value in sim_data.items()
+            }
+        else:
+            filtered_data = sim_data
+
         filtered_results.append(filtered_data)
         sizes.append(len(filtered_data["magobs"]))
 
