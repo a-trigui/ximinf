@@ -283,7 +283,9 @@ def simulate_one(
     model["magabs"]["kwargs"]["mabs"] = mabs_
     model["magabs"]["kwargs"]["alpha"] = alpha_
     model["magabs"]["kwargs"]["beta"] = beta_
-    model["magabs"]["kwargs"]["gamma"] = gamma_
+
+    if "gamma" in model["magabs"]["kwargs"]:
+        model["magabs"]["kwargs"]["gamma"] = gamma_
 
     if rng is None:
         rng = np.random.default_rng()
