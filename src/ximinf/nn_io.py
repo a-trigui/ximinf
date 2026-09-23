@@ -7,7 +7,6 @@ import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
 from pathlib import Path
-import shutil
 
 def save_autoregressive_nn(models_per_group, path, model_config):
     """
