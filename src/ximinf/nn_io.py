@@ -54,8 +54,6 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     # checkpointer.wait_until_finished()
     checkpointer.close()
 
-    shutil.copy("nn_config.py", Path(path) / "nn_config.py")
-
     # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:
         pickle.dump(model_config, f)
@@ -112,9 +110,6 @@ def load_autoregressive_nn(path, model_cls):
 
     shared = model_config["shared"]
     group_configs = model_config["groups"]
-
-    values_idx = [i for i, col in enumerate(shared["columns"]) if not col.endswith("_err")]
-    errors_idx = [i for i, col in enumerate(shared["columns"]) if col.endswith("_err")]
 
     checkpointer = ocp.StandardCheckpointer()
     models_per_group = []
