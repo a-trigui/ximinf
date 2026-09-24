@@ -321,8 +321,15 @@ def simulate_one(
 
     if out_df:
         return df
-    else:
-        return {col: list(df[col]) for col in cols if col in df}
+
+    result = {
+        col: df[col].to_numpy(copy=False)
+        for col in cols
+        if col in df
+    }
+
+    del df
+    return result
     
 
 # def simulate_one(params_dict, z_max, M, cols, default_params, c=None, errormodel=None, rng=None, simple_broken = False, N=None, i=None, survey_name=None, lightcurve=False):
