@@ -614,8 +614,7 @@ def normalize_data(data_dict, columns, mask, data_stats):
 
     and is normalized using ``data_stats["M"]``.
     """
-    infer_columns = [col for col in columns if col != 'z']
-    data_norm = {k: data_dict[k].copy() for k in infer_columns}
+    data_norm = {k: data_dict[k].copy() for k in columns}
 
     for col, arr in data_norm.items():
         mu = data_stats[col]['mu']
@@ -629,7 +628,7 @@ def normalize_data(data_dict, columns, mask, data_stats):
     M_ = jnp.sum(mask, axis=1)
     M_norm = (M_ - data_stats['M']['mu']) / data_stats['M']['sigma']
 
-    return data_norm, M_norm, infer_columns
+    return data_norm, M_norm
 
 # --------------------------------------------------------------------------
 # 5. Stack / flatten / concatenate the data into the inference array.
@@ -667,10 +666,12 @@ def build_data_concat(data_norm, infer_columns, N_total, max_size):
 
         where ``n_cols = len(infer_columns)``.
     """
-    data_arrays = [data_norm[col] for col in infer_columns]  # list of (N, M)
     n_cols = len(infer_columns)
-    data_stacked = jnp.stack(jnp.asarray(data_arrays), axis=-1)   # (N, M, n_cols)
-    data_concat_infer = data_stacked.reshape(N_total, max_size * n_cols)
+
+    data_concat_infer = jnp.concatenate(
+        [data_norm[col][..., None] for col in infer_columns],
+        axis=-1,
+    ).reshape(N_total, max_size * n_cols)
 
     return data_concat_infer
 

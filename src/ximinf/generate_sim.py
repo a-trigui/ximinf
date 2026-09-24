@@ -3,7 +3,6 @@ import skysurvey
 import numpy as np
 from pyDOE import lhs  # LHS sampler
 from scipy.special import erfinv, erf
-from astropy.cosmology import Planck18
 from modeldag.tools import apply_gaussian_noise
 from copy import deepcopy
 
@@ -270,22 +269,34 @@ def simulate_one(
 
     # Merge defaults with provided params
     params = {**default_params, **params_dict}
+
+    if "alpha" in params:
+        params["alpha_low"] = params["alpha"]
+        params["alpha_high"] = params["alpha"]
     
-    alpha_ = float(params["alpha"])
+    # alpha_ = float(params["alpha"])
+    alpha_low_ = float(params["alpha_low"])
+    alpha_high_ = float(params["alpha_high"])
     beta_ = float(params["beta"])
     mabs_ = float(params["mabs"])
     gamma_ = float(params["gamma"])
     sigma_int_ = float(params["sigma_int"])
+    x1_ref_ = float(params["x1_ref"])
 
     model = deepcopy(SIMULATION_MODEL)
 
     model["magabs"]["kwargs"]["sigmaint"] = sigma_int_
     model["magabs"]["kwargs"]["mabs"] = mabs_
-    model["magabs"]["kwargs"]["alpha"] = alpha_
+    model["magabs"]["kwargs"]["alpha_low"] = alpha_low_
+    model["magabs"]["kwargs"]["alpha_high"] = alpha_high_
+    
     model["magabs"]["kwargs"]["beta"] = beta_
 
     if "gamma" in model["magabs"]["kwargs"]:
         model["magabs"]["kwargs"]["gamma"] = gamma_
+
+    if "x1_ref" in model["magabs"]["kwargs"]:
+        model["magabs"]["kwargs"]["x1_ref"] = x1_ref_
 
     if rng is None:
         rng = np.random.default_rng()
@@ -312,3 +323,123 @@ def simulate_one(
         return df
     else:
         return {col: list(df[col]) for col in cols if col in df}
+    
+
+# def simulate_one(params_dict, z_max, M, cols, default_params, c=None, errormodel=None, rng=None, simple_broken = False, N=None, i=None, survey_name=None, lightcurve=False):
+#     # Print progress
+#     if N is not None and i is not None:
+#         if (i+1) % max(1, N//10) == 0 or i == N-1:
+#             print(f"Simulation {i+1}/{N}", end="\r", flush=True)
+
+#     # Merge defaults with provided params (params_dict takes priority)
+#     params = {**default_params, **params_dict}
+
+#     # If a single alpha is provided, enforce alpha_low = alpha_high = alpha
+#     if "alpha" in params:
+#         params["alpha_low"] = params["alpha"]
+#         params["alpha_high"] = params["alpha"]
+
+#     # Ensure all are floats
+#     alpha_low_ = float(params["alpha_low"])
+#     alpha_high_ = float(params["alpha_high"])
+#     beta_  = float(params["beta"])
+#     mabs_  = float(params["mabs"])
+#     gamma_ = float(params["gamma"])
+#     sigma_int_ = float(params["sigma_int"])
+#     x1_ref_ = float(params["x1_ref"])
+
+#     # Set survey-specific selection parameters
+#     cut_loc, cut_scale = None, None
+#     if survey_name is not None:
+#         cut_loc_key = f"cut_loc_{survey_name}"
+#         cut_scale_key = f"cut_scale_{survey_name}"
+#         cut_loc = params[cut_loc_key]
+#         cut_scale = params[cut_scale_key]
+
+#     if "Om0" in params:
+#         Om0 = params["Om0"]
+#         Ob0 = fb * Om0
+#         cosmo = FlatLambdaCDM(
+#             **(Planck18.parameters | {"Om0": Om0, "Ob0": Ob0})
+#         )
+#     else:
+#         cosmo = FlatLambdaCDM(**(Planck18.parameters))
+
+#     brokenalpha_model = skysurvey_sniapop.brokenalpha_model
+
+#     if c is None:
+#         c = { "func": stats.alpha.rvs, "kwargs":{"a":3.63, "loc": -0.416, "scale": 1.62}}
+
+#     if simple_broken == True:
+#         brokenalpha_model['x1'] = {'func': SNeIaStretch.nicolas2021}
+#         brokenalpha_model['x1mode'] = {'func': get_strect_mode_simple, 'kwargs': {'x1': '@x1', 'x1ref': x1_ref_}}
+
+#         # Generate SNe sample
+#         snia = skysurvey.SNeIa.from_draw(
+#             # tstart=survey.date_range[0],
+#             # tstop=survey.date_range[1],
+#             size=M,
+#             zmax=z_max,
+#             model=brokenalpha_model,
+#             magabs={
+#                 "x1": "@x1",
+#                 "c": c,
+#                 "mabs": mabs_,
+#                 "sigmaint": sigma_int_,
+#                 "alpha_low": alpha_low_,
+#                 "alpha_high": alpha_high_,
+#                 "beta": beta_,
+#                 "gamma": gamma_,
+#             },
+#             magobs={
+#                 'cosmology': cosmo
+#             }
+#         )
+#     else:
+#         # Generate SNe sample
+#         snia = skysurvey.SNeIa.from_draw(
+#             # tstart=survey.date_range[0],
+#             # tstop=survey.date_range[1],
+#             size=M,
+#             zmax=z_max,
+#             model=brokenalpha_model,
+#             magabs={
+#                 "x1": "@x1",
+#                 "c": "@c",
+#                 "mabs": mabs_,
+#                 "sigmaint": sigma_int_,
+#                 "alpha_low": alpha_low_,
+#                 "alpha_high": alpha_high_,
+#                 "beta": beta_,
+#                 "gamma": gamma_,
+#                 "x1ref": x1_ref_
+#             },
+#             magobs={
+#                 'cosmology': cosmo
+#             }
+#         )
+
+#     # Apply noise
+#     if errormodel is None:
+#         df = snia.data
+#     else:
+#         if rng is None:
+#             rng = np.random.default_rng()
+#         noisy_snia = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
+#         df = noisy_snia
+
+#     # Apply malmquist bias (selection) if survey-specific parameters are provided
+#     if cut_loc is not None and cut_scale is not None:
+#         mag = np.asarray(df["magobs"], dtype=np.float32)
+
+#         # Detection probability
+#         p_detect = 1.0 - expit((mag - cut_loc) * cut_scale)
+
+#         # Bernoulli draw handled by numpy
+#         mask = np.random.binomial(1, p_detect).astype(bool)
+
+#         df = df.loc[mask].reset_index(drop=True)
+
+#     # Collect columns
+#     data_dict = {col: list(df[col]) for col in cols if col in df}
+#     return data_dict
