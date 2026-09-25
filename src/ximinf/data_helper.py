@@ -820,18 +820,44 @@ def process_simulation_results(
     """
     results_list, N_total = _as_result_list(results)
 
-    data_dict, max_size = filter_and_pad(results_list, columns, get_quality_mask_fn)
-    data_dict, mask = remove_cosmology(data_dict, cosmo, disable_x64_after=disable_x64_after)
+    # Keep z here because it is needed by remove_cosmology().
+    data_dict, max_size = filter_and_pad(
+        results_list,
+        get_quality_mask_fn,
+    )
+
+    # Use z to remove the cosmological distance modulus.
+    data_dict, mask = remove_cosmology(
+        data_dict,
+        cosmo,
+        disable_x64_after=disable_x64_after,
+    )
 
     data_stats = models_config['shared']['data_stats']
-    data_norm, M_norm, infer_columns = normalize_data(data_dict, columns, mask, data_stats)
+
+    # z is needed above, but must never be passed to the NN.
+    infer_columns = columns #[col for col in columns if col != 'z']
+
+    data_norm, M_norm = normalize_data(
+        data_dict,
+        infer_columns,
+        mask,
+        data_stats,
+    )
 
     data_concat_infer = build_data_concat(
-        data_norm, infer_columns, N_total, max_size
+        data_norm,
+        infer_columns,
+        N_total,
+        max_size,
     )
 
     inputs_infer = build_inputs_infer(
-        data_concat_infer, mask, M_norm, N_total, max_size
+        data_concat_infer,
+        mask,
+        M_norm,
+        N_total,
+        max_size,
     )
 
     return inputs_infer, data_dict, mask, max_size
