@@ -400,7 +400,7 @@ def _as_result_list(results):
     return list(results), len(results)
 
 
-def filter_and_pad(results, columns, get_quality_mask_fn=None):
+def filter_and_pad(results, get_quality_mask_fn=None):
     """
     Apply a quality selection to simulation results and pad them to a common size.
 
@@ -462,7 +462,7 @@ def filter_and_pad(results, columns, get_quality_mask_fn=None):
 
     data_dict = {
         col: np.zeros((N_total, max_size), dtype=np.float32)
-        for col in columns
+        for col in sim_data.keys()
     }
 
     for i, sim_data in enumerate(filtered_results):
