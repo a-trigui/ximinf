@@ -3,6 +3,7 @@ import skysurvey
 import numpy as np
 from pyDOE import lhs  # LHS sampler
 from scipy.special import erfinv, erf
+import scipy.special as sci_spe
 from modeldag.tools import apply_gaussian_noise
 from copy import deepcopy
 
@@ -177,6 +178,7 @@ def simulate_one(
     default_params,
     SIMULATION_MODEL,
     errormodel=None,
+    survey_name=None,
     rng=None,
     N=None,
     i=None,
@@ -298,6 +300,14 @@ def simulate_one(
     if "x1_ref" in model["magabs"]["kwargs"]:
         model["magabs"]["kwargs"]["x1_ref"] = x1_ref_
 
+    # Set survey-specific selection parameters
+    cut_loc, cut_scale = None, None
+    if survey_name is not None:
+        cut_loc_key = f"cut_loc_{survey_name}"
+        cut_scale_key = f"cut_scale_{survey_name}"
+        cut_loc = params[cut_loc_key]
+        cut_scale = params[cut_scale_key]
+
     if rng is None:
         rng = np.random.default_rng()
     
@@ -318,6 +328,18 @@ def simulate_one(
         if rng is None:
             rng = np.random.default_rng()
         df = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
+
+        # Apply malmquist bias (selection) if survey-specific parameters are provided
+    if cut_loc is not None and cut_scale is not None:
+        mag = np.asarray(df["magobs"], dtype=np.float32)
+
+        # Detection probability
+        p_detect = 1.0 - sci_spe.expit((mag - cut_loc) * cut_scale)
+
+        # Bernoulli draw handled by numpy
+        mask = np.random.binomial(1, p_detect).astype(bool)
+
+        df = df.loc[mask].reset_index(drop=True)
 
     if out_df:
         return df

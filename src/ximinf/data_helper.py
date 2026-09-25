@@ -2,6 +2,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+import importlib.util
 from pathlib import Path
 import shutil
 import h5py
@@ -359,6 +360,18 @@ def load_hdf5(file_path):
         data = _load_group(f["data"])
         
         return params, data
+    
+def load_module_from_run(run_dir, module_filename=None):
+    """Import a .py file as a module object, without touching sys.modules globally."""
+    run_dir = Path(run_dir)          # <-- ensure it's a Path
+    module_path = run_dir / module_filename
+    if not module_path.exists():
+        raise FileNotFoundError(f"No {module_filename} found in {run_dir}")
+
+    spec = importlib.util.spec_from_file_location(f"{module_path.stem}_{run_dir.name}", module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 # --------------------------------------------------------------------------
 # 1. Normalize input: accept either a list of sim dicts (parallel case)
