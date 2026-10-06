@@ -226,6 +226,7 @@ def train_loop(
     group_id,
     group_params,
     plot_flag=False,
+    step_plot=1,
 ):
     """
     Train a neural network with validation monitoring and early stopping.
@@ -371,7 +372,7 @@ def train_loop(
             best_val_loss = current_val_loss
 
         # Plotting (optional)
-        if plot_flag and epoch % 1 == 0:
+        if plot_flag and epoch % step_plot == 0:
             clear_output(wait=True)
 
             print(f"=== Training model for group {group_id}: {group_params} ===")

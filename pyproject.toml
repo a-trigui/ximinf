@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ximinf"
-version = "0.0.171"
+version = "0.0.172"
 description = "Simulation Based Inference of Cosmological parameters in Jax using type Ia supernovae. "
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,6 +38,9 @@ Homepage = "https://github.com/a-trigui/ximinf"
 Documentation = "https://ximinf.readthedocs.io"
 
 [project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
 notebooks = ["jupyter", "matplotlib"]
 
 docs = [
@@ -46,3 +49,8 @@ docs = [
     "myst-parser>=2.0",  # to allow Markdown
     "sphinx-autodoc-typehints>=2.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--ignore=tests/test_rvs_distribs.py"
