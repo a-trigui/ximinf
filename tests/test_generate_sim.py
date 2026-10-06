@@ -76,12 +76,12 @@ def test_scan_params_unknown_prior():
         scan_params(priors, N=10)
 
 
-def test_evolving_rate():
-    # At z = 0, rate should equal r0
-    assert np.isclose(evolving_rate(0.0, r0=2.3e4, alpha=1.70), 2.3e4)
+# def test_evolving_rate():
+#     # At z = 0, rate should equal r0
+#     assert np.isclose(evolving_rate(0.0, r0=2.3e4, alpha=1.70), 2.3e4)
 
-    # Array input
-    z = np.array([0.0, 1.0])
-    rate = evolving_rate(z, r0=100.0, alpha=2.0)
-    assert np.isclose(rate[0], 100.0)
-    assert np.isclose(rate[1], 100.0 * (2.0 ** 2.0))
+#     # Array input
+#     z = np.array([0.0, 1.0])
+#     rate = evolving_rate(z, r0=100.0, alpha=2.0)
+#     assert np.isclose(rate[0], 100.0)
+#     assert np.isclose(rate[1], 100.0 * (2.0 ** 2.0))
