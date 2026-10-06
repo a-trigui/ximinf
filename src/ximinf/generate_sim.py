@@ -7,11 +7,11 @@ import scipy.special as sci_spe
 from modeldag.tools import apply_gaussian_noise
 from copy import deepcopy
 
-from dustmaps.config import config
-config["data_dir"] = "../data/dustmaps"
+# from dustmaps.config import config
+# config["data_dir"] = "../data/dustmaps"
 
-import dustmaps.planck
-dustmaps.planck.fetch()
+# import dustmaps.planck
+# dustmaps.planck.fetch()
 
 def get_stretch_mode_simple(x1, x1ref):
     """
@@ -329,7 +329,7 @@ def simulate_one(
         zmax=z_max,
         model=model,
         # rate=evolving_rate,
-        effect=skysurvey.effects.mw_extinction,
+        # effect=skysurvey.effects.mw_extinction,
     )
 
     # Noise
