@@ -4,7 +4,7 @@ import pytest
 from ximinf.generate_sim import (
     get_stretch_mode_simple,
     scan_params,
-    evolving_rate,
+    # evolving_rate,
 )
 
 
