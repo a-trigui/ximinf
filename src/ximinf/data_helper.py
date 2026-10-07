@@ -95,24 +95,76 @@ def unnormalize(normed_params, param_stats):
 # --------------------------------------------------------------------------
 # 0. Save the simulation
 # --------------------------------------------------------------------------
+def build_simulation_path(
+    base_dir=Path("../data/SIM"),
+):
+    """
+    Create a new simulation directory and return its path.
+
+    Parameters
+    ----------
+    base_dir : pathlib.Path or str, optional
+        Base directory in which simulation directories are created.
+        Default is ``Path("../data/SIM")``.
+
+    Returns
+    -------
+    sim_dir : pathlib.Path
+        Path to the newly created simulation directory.
+
+    save_path : pathlib.Path
+        Path to the ``simulations.h5`` file.
+
+    Notes
+    -----
+    Simulation directories are named using the format ``sim_XXXX``,
+    where ``XXXX`` is a zero-padded simulation identifier.
+    """
+
+    base_dir = Path(base_dir)
+
+    # Base directory
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find next simulation number
+    existing = sorted(
+        [
+            int(p.name.split("_")[1])
+            for p in base_dir.glob("sim_*")
+            if p.is_dir() and p.name.split("_")[1].isdigit()
+        ]
+    )
+    sim_id = max(existing, default=0) + 1
+
+    # Create simulation directory
+    sim_dir = base_dir / f"sim_{sim_id:04d}"
+    sim_dir.mkdir()
+
+    # HDF5 file path
+    save_path = sim_dir / "simulations.h5"
+
+    return sim_dir, save_path
+
+
 def save_simulation(
+    sim_dir,
+    save_path,
     params_dict,
     dict_arrays,
     priors,
-    base_dir=Path("../data/SIM"),
     sim_config_path="sim_config.py",
 ):
     """
     Save a simulation and its configuration to an HDF5 file.
 
-    A new simulation directory is created under ``base_dir`` using the next
-    available simulation identifier. The simulation parameters, simulated
-    data, and prior definitions are stored in ``simulations.h5``. The
-    simulation configuration file is also copied into the simulation
-    directory.
-
     Parameters
     ----------
+    sim_dir : pathlib.Path
+        Directory in which the simulation is saved.
+
+    save_path : pathlib.Path
+        Path to the ``simulations.h5`` file.
+
     params_dict : dict
         Dictionary mapping parameter names to arrays containing the
         parameter values used for the simulation.
@@ -125,56 +177,28 @@ def save_simulation(
         Dictionary containing the prior definitions for each parameter.
         Each prior must contain a ``"range"`` entry and a ``"type"`` entry.
 
-    base_dir : pathlib.Path or str, optional
-        Base directory in which simulation directories are created.
-        Default is ``Path("../data/SIM")``.
-
     sim_config_path : pathlib.Path or str, optional
-        Path to the simulation configuration file to copy into the new
+        Path to the simulation configuration file to copy into the
         simulation directory. Default is ``"sim_config.py"``.
 
     Returns
     -------
-    sim_dir : pathlib.Path
-        Path to the newly created simulation directory.
-
-    save_path : pathlib.Path
+    pathlib.Path
         Path to the generated ``simulations.h5`` file.
 
     Notes
     -----
-    Simulation directories are named using the format ``sim_XXXX``, where
-    ``XXXX`` is a zero-padded simulation identifier.
-
     Parameters are stored under the ``params`` HDF5 group, simulated data
     under ``data``, and prior definitions under ``priors``.
+
     Parameter and data arrays are stored using ``float32`` precision.
     """
-    # Base directory
-    base_dir.mkdir(parents=True, exist_ok=True)
-
-    # Find next simulation number
-    existing = sorted(
-        [
-            int(p.name.split("_")[1])
-            for p in base_dir.glob("sim_*")
-            if p.is_dir() and p.name.split("_")[1].isdigit()
-        ]
-    )
-
-    sim_id = max(existing, default=0) + 1
-
-    # Create simulation directory
-    sim_dir = base_dir / f"sim_{sim_id:04d}"
-    sim_dir.mkdir()
 
     # Copy configuration file
     shutil.copy(sim_config_path, sim_dir / "sim_config.py")
 
-    # HDF5 file path
-    save_path = sim_dir / "simulations.h5"
-
     with h5py.File(save_path, "w") as f:
+
         # Save parameters
         for key, arr in params_dict.items():
             f.create_dataset(f"params/{key}", data=arr, dtype=np.float32)
@@ -185,12 +209,13 @@ def save_simulation(
 
         # Save priors
         priors_grp = f.create_group("priors")
+
         for name, prior in priors.items():
             param_grp = priors_grp.create_group(name)
             param_grp.create_dataset("range", data=prior["range"])
             param_grp.attrs["type"] = prior["type"]
 
-    return sim_dir, save_path
+    return save_path
 
 def load_simulation(sim_dir):
     """
