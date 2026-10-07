@@ -67,7 +67,6 @@ def setup_jax_device():
 
     # Use GPU if found
     if gpu is not None and gpu.platform == "cuda":
-        print_gpu_memory()
         device = gpu
     elif gpu is not None:
         device = gpu

@@ -445,3 +445,60 @@ def compute_ecp_tarp_groups(
     ecp_vals = [jnp.mean(f_vals < (1.0 - alpha)) for alpha in alpha_list]
 
     return ecp_vals, f_vals, posteriors, rng_key
+
+def autocorr_fft(x, max_lag):
+    """
+    Compute the autocorrelation function of a one-dimensional sequence using
+    an FFT-based estimator.
+
+    The input sequence is first centered by subtracting its mean. The
+    autocorrelation is then computed efficiently in Fourier space using
+    zero-padding to avoid circular convolution effects. The resulting
+    autocorrelation is normalized by its zero-lag value such that the
+    autocorrelation at lag zero is equal to one.
+
+    Parameters
+    ----------
+    x : jax.Array
+        One-dimensional input sequence for which the autocorrelation is
+        estimated.
+    max_lag : int
+        Number of non-negative lags to return. The returned array contains
+        lags from 0 to ``max_lag - 1``.
+
+    Returns
+    -------
+    jax.Array
+        Normalized autocorrelation function for the non-negative lags
+        ``0, ..., max_lag - 1``. The value at lag zero is equal to one.
+
+    Notes
+    -----
+    The estimator is biased and energy-normalized. The input is centered
+    before computing the autocorrelation, and the sequence is zero-padded
+    to twice its original length before applying the FFT in order to avoid
+    circular convolution effects.
+    """
+
+    n = x.shape[0]
+
+    # Remove mean (important for statistical correctness)
+    x = x - jnp.mean(x)
+
+    # Zero-padding to avoid circular convolution effects
+    nfft = 2 * n
+
+    # FFT
+    X = jnp.fft.rfft(x, n=nfft)
+
+    # Power spectrum
+    S = X * jnp.conj(X)
+
+    # Inverse FFT -> autocorrelation
+    acf_full = jnp.fft.irfft(S, n=nfft)
+
+    # Normalize by zero-lag value
+    acf_full = acf_full / acf_full[0]
+
+    # Keep only non-negative lags
+    return acf_full[:max_lag]
