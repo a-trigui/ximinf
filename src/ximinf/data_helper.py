@@ -110,7 +110,7 @@ def build_simulation_path(
     Returns
     -------
     sim_dir : pathlib.Path
-        Path to the newly created simulation directory.
+        Path to the simulation directory.
 
     save_path : pathlib.Path
         Path to the ``simulations.h5`` file.
@@ -126,7 +126,7 @@ def build_simulation_path(
     # Base directory
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find next simulation number
+    # Find existing simulation numbers
     existing = sorted(
         [
             int(p.name.split("_")[1])
@@ -134,11 +134,22 @@ def build_simulation_path(
             if p.is_dir() and p.name.split("_")[1].isdigit()
         ]
     )
-    sim_id = max(existing, default=0) + 1
+
+    sim_id = max(existing, default=0)
+
+    # Check whether the latest simulation is complete
+    if sim_id > 0:
+        sim_dir = base_dir / f"sim_{sim_id:04d}"
+        save_path = sim_dir / "simulations.h5"
+
+        if save_path.exists():
+            sim_id += 1
+    else:
+        sim_id = 1
 
     # Create simulation directory
     sim_dir = base_dir / f"sim_{sim_id:04d}"
-    sim_dir.mkdir()
+    sim_dir.mkdir(exist_ok=True)
 
     # HDF5 file path
     save_path = sim_dir / "simulations.h5"
