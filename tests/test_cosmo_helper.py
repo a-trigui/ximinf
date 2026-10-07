@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from astropy.cosmology import FlatLambdaCDM, LambdaCDM
+from astropy.cosmology import w0waCDM
 
 from ximinf.cosmo_helper import (
     PRESETS,
@@ -54,17 +54,24 @@ def test_to_cosmologix():
 def test_to_astropy_flat():
     cosmo = get_canonical(Omega_k=0.0)
     ap_cosmo = to_astropy(cosmo)
-    assert isinstance(ap_cosmo, FlatLambdaCDM)
+    assert isinstance(ap_cosmo, w0waCDM)
+    assert np.isclose(ap_cosmo.Ok0, 0.0, atol=1e-10)
     assert np.isclose(ap_cosmo.H0.value, cosmo["H0"])
     assert np.isclose(ap_cosmo.Om0, cosmo["Omega_bc"])
+    assert np.isclose(ap_cosmo.Ob0, cosmo["Omega_b_h2"] / (cosmo["H0"] / 100) ** 2)
+    assert np.isclose(ap_cosmo.Tcmb0.value, cosmo["Tcmb"])
+    assert np.isclose(ap_cosmo.Neff, cosmo["Neff"])
+    assert np.isclose(ap_cosmo.m_nu.sum().value, cosmo["m_nu"])
+    assert ap_cosmo.w0 == -1.0
+    assert ap_cosmo.wa == 0.0
 
 
 def test_to_astropy_non_flat():
     cosmo = get_canonical(Omega_k=0.05)
     ap_cosmo = to_astropy(cosmo)
-    assert isinstance(ap_cosmo, LambdaCDM)
-    assert not isinstance(ap_cosmo, FlatLambdaCDM)
-    assert np.isclose(ap_cosmo.Ok0, 0.05)
+    assert isinstance(ap_cosmo, w0waCDM)
+    assert np.isclose(ap_cosmo.Ok0, 0.05, atol=1e-10)
+    assert np.isclose(ap_cosmo.Om0, cosmo["Omega_bc"])
 
 
 def test_distmod_astropy():
