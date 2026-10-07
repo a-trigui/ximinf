@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import ximinf.nn_inference as nninf 
 import ximinf.nn_train as nntr
+import numpy as np
 
 
 def evaluate_models_per_group(
@@ -12,6 +13,7 @@ def evaluate_models_per_group(
     data_test,
     mask_test,
     M_norm_test,
+    gpu,
     batch_size=128,
 ):
     """
@@ -109,6 +111,8 @@ def evaluate_models_per_group(
                 ],
                 axis=-1,
             )
+
+            xb = jax.device_put(xb, gpu)
 
             yb = labels_test[i:i + batch_size, None].astype(jnp.int32)
 

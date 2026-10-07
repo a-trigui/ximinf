@@ -113,7 +113,6 @@ class Rho(nnx.Module):
 
         return self.output(x)
 
-
 class DeepSetClassifier(nnx.Module):
     def __init__(
         self,

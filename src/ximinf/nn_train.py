@@ -12,27 +12,18 @@ import numpy as np
 # Optimization
 import optax  # Optimisers for JAX
 
-def print_gpu_memory():
-    """
-    Print the currently used and total GPU memory reported by ``nvidia-smi``.
+def print_jax_memory():
+    arrs = jax.live_arrays()
+    print(f"{len(arrs)} live arrays")
+    print(f"Total: {sum(a.nbytes for a in arrs) / 1e9:.3f} GB")
 
-    Returns
-    -------
-    None
-        The memory usage is printed to standard output.
-
-    Notes
-    -----
-    This function relies on the NVIDIA System Management Interface
-    (``nvidia-smi``) being installed and available on the system path. It
-    queries memory usage in MiB without units in the command output.
-    """
-    result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,nounits,noheader"],
-        capture_output=True, text=True
-    )
-    used, total = map(int, result.stdout.strip().split(','))
-    print(f"GPU memory used: {used} MB / {total} MB")
+    for i, a in enumerate(sorted(arrs, key=lambda x: -x.nbytes)[:15]):
+        print(
+            f"{i:2d}: "
+            f"{a.nbytes / 1e9:.3f} GB "
+            f"{a.shape} "
+            f"{a.dtype}"
+        )
 
 def setup_jax_device():
     """
