@@ -1,10 +1,7 @@
 import jax
 import jax.numpy as jnp
-import jax.scipy as jsp
 import ximinf.nn_inference as nninf 
 import ximinf.nn_train as nntr
-import numpy as np
-
 
 def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
     """Prints the test accuracy of each group and returns them as a list of floats."""

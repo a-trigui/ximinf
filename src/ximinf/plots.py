@@ -3,6 +3,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from getdist import plots, MCSamples
+
+def apply_default_settings():
+    plt.rcParams.update({
+    "font.size": 12,          # General font size
+    "axes.labelsize": 14,     # x/y axis labels
+    "axes.titlesize": 16,     # Title
+    "xtick.labelsize": 12,    # x tick labels
+    "ytick.labelsize": 12,    # y tick labels
+    "legend.fontsize": 12,    # Legend
+})
 
 def plot_HD(
     example,
@@ -340,6 +351,9 @@ def plot_HD(
 
     return fig, (ax1, ax2)
 
+
+
+
 def plot_residuals(data_filt, params, global_param_names, mask):
     # Define the color maps
     cmap1 = LinearSegmentedColormap.from_list(
@@ -414,3 +428,106 @@ def plot_residuals(data_filt, params, global_param_names, mask):
     print(f"{sum(mask)} supernovae")
 
     plt.show()
+
+
+
+
+def plot_corner_comparison(
+    posterior_dicts,
+    truth_dict=None,
+    styles=None,
+    methods_to_plot=("SBI", "cosmologix"),
+    contours=(0.68, 0.95),
+    save_path="./Images/corner_comparison.png",
+    legend_loc="upper right",
+    show=True,
+):
+    """
+    Corner plot comparing posteriors from several inference methods.
+
+    Parameters
+    ----------
+    posterior_dicts : dict[str, dict[str, array-like]]
+        {method_name: {param_name: samples}}.
+    truth_dict : dict[str, float], optional
+        True parameter values, drawn as markers on the parameters shared
+        by the selected methods.
+    styles : dict[str, dict], optional
+        {method_name: {"color": ..., "filled": bool}}. Defaults to
+        matplotlib's color cycle with unfilled contours when omitted.
+    methods_to_plot : sequence of str
+        Methods to display (order = plot order),
+        e.g. ["SBI", "Standax", "cosmologix"].
+    contours : sequence of float
+        Credible levels of the contours.
+    save_path : str or None
+        Where to export the figure. None to skip saving.
+    legend_loc : str
+        Legend location.
+    show : bool
+        Whether to call plt.show().
+
+    Returns
+    -------
+    g : getdist.plots.GetDistPlotter
+    """
+    plt.close()
+
+    methods_to_plot = list(methods_to_plot)
+    truth_dict = truth_dict or {}
+
+    # Sanity check
+    unknown = [m for m in methods_to_plot if m not in posterior_dicts]
+    assert not unknown, (
+        f"Unknown method(s): {unknown}. Available: {list(posterior_dicts)}"
+    )
+
+    # Default styles
+    if styles is None:
+        cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        styles = {
+            m: {"color": cycle[i % len(cycle)], "filled": False}
+            for i, m in enumerate(methods_to_plot)
+        }
+
+    # Parameters common to the selected methods only
+    common_names = sorted(
+        set.intersection(*[set(posterior_dicts[m]) for m in methods_to_plot])
+    )
+    assert common_names, "The selected methods share no common parameters."
+    labels_common = [n.replace("_", r"\_") for n in common_names]
+    markers = {k: v for k, v in truth_dict.items() if k in common_names}
+
+    # Build one MCSamples per selected method
+    gd_samples = []
+    for m in methods_to_plot:
+        samples = np.column_stack([posterior_dicts[m][n] for n in common_names])
+        gd = MCSamples(samples=samples, names=common_names, labels=labels_common)
+        gd.updateSettings({"contours": list(contours)})
+        gd_samples.append(gd)
+
+    # Plot
+    g = plots.get_subplot_plotter()
+    g.settings.legend_fontsize = 20
+    g.settings.axes_labelsize = 20
+    g.settings.axes_fontsize = 16
+    g.settings.title_limit_fontsize = 14
+    g.settings.title_limit_labels = False
+
+    g.triangle_plot(
+        gd_samples,
+        filled=[styles[m]["filled"] for m in methods_to_plot],
+        contour_colors=[styles[m]["color"] for m in methods_to_plot],
+        contour_args={"lw": 1.0},
+        legend_labels=methods_to_plot,
+        legend_loc=legend_loc,
+        markers=markers,
+        title_limit=1,
+    )
+
+    if save_path is not None:
+        g.export(save_path)
+    if show:
+        plt.show()
+
+    return g
