@@ -450,6 +450,7 @@ def plot_corner_comparison(
     styles=styles,
     methods_to_plot=("NRE", "MLE"),
     contours=(0.68, 0.95),
+    latex_labels=None,
     save_path="./Images/corner_comparison.png",
     legend_loc="upper right",
     show=True,
@@ -507,7 +508,11 @@ def plot_corner_comparison(
         set.intersection(*[set(posterior_dicts[m]) for m in methods_to_plot])
     )
     assert common_names, "The selected methods share no common parameters."
-    labels_common = [n.replace("_", r"\_") for n in common_names]
+    latex_labels = latex_labels or {}
+    labels_common = [
+        latex_labels.get(n, n.replace("_", r"\_"))   # fallback: escaped raw name
+        for n in common_names
+    ]
     markers = {k: v for k, v in truth_dict.items() if k in common_names}
 
     # Build one MCSamples per selected method
