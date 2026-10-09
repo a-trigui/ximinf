@@ -14,9 +14,9 @@ GREEN = '#687444'
 PURPLE = '#5E4983'
 
 styles = {
-    "SBI":        {"color": RED, "filled": True},
+    "NRE":        {"color": RED, "filled": True},
     "Standax":    {"color": GOLD, "filled": False},
-    "cosmologix": {"color": BLUE, "filled": False},
+    "MLE": {"color": BLUE, "filled": False},
 }
 
 def apply_default_settings():
@@ -448,7 +448,7 @@ def plot_corner_comparison(
     posterior_dicts,
     truth_dict=None,
     styles=styles,
-    methods_to_plot=("SBI", "cosmologix"),
+    methods_to_plot=("NRE", "MLE"),
     contours=(0.68, 0.95),
     save_path="./Images/corner_comparison.png",
     legend_loc="upper right",
