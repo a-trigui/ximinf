@@ -1,3 +1,3 @@
-nn_path = "../data/NNs/nn_model_priors_uniform_M_N_200000_1_M_15000_batch_500_lr_1e-4_mabs_beta_alpha_gamma_sigmaint_dropout_0_0_phi_0_2_rho_deepset_256_depth_1_patience_10_proxies_with_z_malmquist"
+nn_path = "../data/NNs/NN_M_N_20000_1_M_1000_batch_500_lr_0.0002_params_mabs+beta+alpha_dropout_phi_0.0_rho_0.0_width_phi_256_rho_256_depth_phi_1_rho_1_patience_20_sim_0015"
 
 inference_file_path = "../data/inference_data_frame.h5"

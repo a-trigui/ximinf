@@ -20,7 +20,7 @@ params = {
     'mabs': -19.3,
     'alpha': -0.161,
     'beta': 3.05 ,
-    'gamma': 0.0, #0.143,
+    'gamma': 0.143, #0.143,
     'sigma_int': 0.0, #0.1,
     'cut_loc_ZTF': 18.8,
     'cut_scale_ZTF': 4.5,
@@ -28,13 +28,17 @@ params = {
 }
 
 # Normal M=1000
-ranges = {
-    'mabs': np.array([-19.4, -19.2]),
-    'alpha': np.array([-0.25, -0.07]),
-    'beta': np.array([2.4, 3.6]),
-    # 'gamma': np.array([-0.1, 0.3]),
-    # 'sigma_int': np.array([0.0, 0.3])
-}
+# ranges = {
+#     'mabs': np.array([-19.4, -19.2]),
+#     'alpha': np.array([-0.25, -0.07]),
+#     'beta': np.array([2.4, 3.6]),
+#     # 'gamma': np.array([-0.1, 0.3]),
+#     # 'sigma_int': np.array([0.0, 0.3])
+# }
+
+
+
+ranges = {}
 
 types = {
     'mabs': 'uniform',
@@ -46,20 +50,25 @@ types = {
 
 z_max = 0.06 #0.06
 
-N = 2_000
+N = 50_000 #100_000
 n_realisations = 1
 M = 1_000 #2_000
 
-def get_quality_mask(sim_data):
-    return (
-        (np.asarray(sim_data["c"]) >= -0.5)
-        & (np.asarray(sim_data["c"]) <= 1.0)
-        & (np.asarray(sim_data["x1"]) >= -4)
-        & (np.asarray(sim_data["x1"]) <= 4)
-        & (np.asarray(sim_data["x1_err"]) <= 1)
-        & (np.asarray(sim_data["c_err"]) <= 0.1)
-        # & ((np.asarray(sim_data["mwebv"]) * 3.1) < 1)
-    )
+# survey_name = 'ZTF'
+survey_name = None # None #'ZTF'
+
+# def get_quality_mask(sim_data):
+#     return (
+#         (np.asarray(sim_data["c"]) >= -0.5)
+#         & (np.asarray(sim_data["c"]) <= 1.0)
+#         & (np.asarray(sim_data["x1"]) >= -4)
+#         & (np.asarray(sim_data["x1"]) <= 4)
+#         & (np.asarray(sim_data["x1_err"]) <= 1)
+#         & (np.asarray(sim_data["c_err"]) <= 0.1)
+#         # & ((np.asarray(sim_data["mwebv"]) * 3.1) < 1)
+#     )
+
+get_quality_mask = None
 
 # brokenalpha_model = skysurvey_sniapop.brokenalpha_model
 
@@ -110,6 +119,43 @@ SIMULATION_MODEL = dict( redshift = {"kwargs": {"zmax":z_max}, "as":"z"},
                             },
                        )
 
+# 2 - Small gaussian
+noise_model = {
+    # SALT paramerers
+    "x1": { "func": stats.norm.rvs,
+            "kwargs": {"loc":0.1, "scale":0.005}
+          }, 
+
+    "c": 
+        { "func": stats.norm.rvs,
+            "kwargs": {"loc":0.03, "scale":0.002}
+          },
+
+    # derived
+
+    "magobs": { "func": stats.norm.rvs,
+            "kwargs": {"loc":0.03 , "scale":0.002}
+            },
+}
+
+prior_width = 10
+
+s = np.sqrt(noise_model["magobs"]["kwargs"]["loc"]**2+params['alpha']**2*noise_model["x1"]["kwargs"]["loc"]**2+params['beta']**2*noise_model["c"]["kwargs"]["loc"]**2+params['sigma_int']**2)
+sd_x1 = 6.0 / np.sqrt(12)    # x1 ~ U(-3, 3)
+sd_c  = 0.6 / np.sqrt(12)    # c  ~ U(-0.3, 0.3)
+
+sigma_mabs  = s / np.sqrt(M)
+sigma_alpha = s / np.sqrt(M) / sd_x1
+sigma_beta  = s / np.sqrt(M) / sd_c
+
+ranges = {
+    'mabs': np.array([params['mabs']-prior_width*sigma_mabs, params['mabs']+prior_width*sigma_mabs]),
+    'alpha': np.array([params['alpha']-prior_width*sigma_alpha, params['alpha']+prior_width*sigma_alpha]),
+    'beta': np.array([params['beta']-prior_width*sigma_beta, params['beta']+prior_width*sigma_beta]),
+    # 'gamma': np.array([-0.1, 0.3]),
+    # 'sigma_int': np.array([0.0, 0.3])
+}
+
 # # 1 - Realistic distrib
 # noise_model = {
 #     # SALT paramerers
@@ -158,24 +204,7 @@ SIMULATION_MODEL = dict( redshift = {"kwargs": {"zmax":z_max}, "as":"z"},
 #             },
 # }
 
-# 2 - Small gaussian
-noise_model = {
-    # SALT paramerers
-    "x1": { "func": stats.norm.rvs,
-            "kwargs": {"loc":0.1, "scale":0.005}
-          }, 
 
-    "c": 
-        { "func": stats.norm.rvs,
-            "kwargs": {"loc":0.03, "scale":0.002}
-          },
-
-    # derived
-
-    "magobs": { "func": stats.norm.rvs,
-            "kwargs": {"loc":0.03 , "scale":0.002}
-            },
-}
 
 
 

@@ -3,6 +3,8 @@ import jax.numpy as jnp  # Numpy for JAX
 from flax import nnx
 
 # SIMPLEST
+
+
         
 class Phi(nnx.Module):
     def __init__(
@@ -43,6 +45,7 @@ class Phi(nnx.Module):
         )
 
         self.dropout = nnx.Dropout(drop_rate, rngs=rngs)
+        # self.dropout = nnx.Dropout(drop_rate, broadcast_dims=(1,), rngs=rngs)
 
     def __call__(self, data, mask):
         h = data
@@ -124,8 +127,6 @@ class DeepSetClassifier(nnx.Module):
         depth_r,
         n_cols,
         n_params,
-        # val_idx,
-        # err_idx,
         *,
         rngs,
     ):
