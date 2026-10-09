@@ -6,156 +6,19 @@ import ximinf.nn_train as nntr
 import numpy as np
 
 
-def evaluate_models_per_group(
-    models_per_group,
-    param_groups,
-    all_group_param_slices,
-    data_test,
-    mask_test,
-    M_norm_test,
-    gpu,
-    batch_size=128,
-):
-    """
-    Evaluate binary classifiers independently for each parameter group.
-
-    Each model is evaluated on the corresponding test subset defined by
-    ``all_group_param_slices``. The input features are constructed by
-    concatenating the test data, mask, normalized magnitude information,
-    and the selected parameters for the group. Predictions are obtained
-    from the model logits using a sigmoid threshold of 0.5.
-
-    For each parameter group, the function computes the accuracy, precision,
-    sensitivity (true positive rate), and specificity (true negative rate)
-    from the resulting confusion matrix.
-
-    Parameters
-    ----------
-    models_per_group : sequence
-        Sequence of trained classification models, with one model
-        corresponding to each parameter group.
-
-    param_groups : sequence
-        Labels or identifiers describing the parameter group associated with
-        each model.
-
-    all_group_param_slices : sequence of dict
-        Group-specific test-set information. Each element must contain
-        ``"chosen_test"`` and ``"labels_test"`` entries corresponding to the
-        selected parameters and binary labels for that group.
-
-    data_test : jax.Array
-        Test data used as model input.
-
-    mask_test : jax.Array
-        Test-set mask values concatenated with the input data.
-
-    M_norm_test : jax.Array
-        Normalized test-set magnitude information concatenated with the model
-        inputs.
-
-    batch_size : int, optional
-        Number of test samples processed in each batch. Default is 128.
-
-    Returns
-    -------
-    metrics_per_group : list of dict
-        List containing one dictionary per parameter group. Each dictionary
-        contains the following metrics:
-
-        ``"accuracy"``
-            Fraction of correctly classified samples.
-
-        ``"precision"``
-            Fraction of predicted positive samples that are true positives.
-
-        ``"sensitivity"``
-            Fraction of positive samples correctly identified by the model.
-
-        ``"specificity"``
-            Fraction of negative samples correctly identified by the model.
-
-    Notes
-    -----
-    The sigmoid probability is thresholded at 0.5 to obtain binary
-    predictions. A small value of ``1e-8`` is added to the denominators of
-    precision, sensitivity, and specificity to avoid division by zero.
-    """
-    # Set models to evaluation mode
-    for model_g in models_per_group:
-        model_g.eval()  # disable dropout, etc.
-
-    metrics_per_group = []
-
-    # Loop over groups
-    for g, model_g in enumerate(models_per_group):
-
-        print(f"\n=== Evaluating model for group {g}: {param_groups[g]} ===")
-
-        chosen_test = all_group_param_slices[g]["chosen_test"]
-        labels_test = all_group_param_slices[g]["labels_test"]
-
-        num_samples = labels_test.shape[0]
-
-        all_logits = []
-        all_labels = []
-
-        for i in range(0, num_samples, batch_size):
-
-            xb = jnp.concatenate(
-                [
-                    data_test[i:i + batch_size],
-                    mask_test[i:i + batch_size],
-                    M_norm_test[i:i + batch_size],
-                    chosen_test[i:i + batch_size],
-                ],
-                axis=-1,
-            )
-
-            xb = jax.device_put(xb, gpu)
-
-            yb = labels_test[i:i + batch_size, None].astype(jnp.int32)
-
-            # Model predictions
-            logits = nntr.pred_step(model_g, xb)
-            all_logits.append(logits)
-            all_labels.append(yb)
-
-        # Merge batches
-        all_logits = jnp.concatenate(all_logits, axis=0)
-        all_labels = jnp.concatenate(all_labels, axis=0)
-
-        all_preds = (
-            jsp.special.expit(all_logits) > 0.5
-        ).astype(jnp.int32)
-
-        # Confusion matrix components
-        TP = jnp.sum((all_preds == 1) & (all_labels == 1))
-        TN = jnp.sum((all_preds == 0) & (all_labels == 0))
-        FP = jnp.sum((all_preds == 1) & (all_labels == 0))
-        FN = jnp.sum((all_preds == 0) & (all_labels == 1))
-
-        accuracy = (TP + TN) / (TP + TN + FP + FN)
-        precision = TP / (TP + FP + 1e-8)
-        sensitivity = TP / (TP + FN + 1e-8)
-        specificity = TN / (TN + FP + 1e-8)
-
-        print(
-            f"Group {g} ({param_groups[g]}): "
-            f"Accuracy={accuracy:.3f}, "
-            f"Precision={precision:.3f}, "
-            f"Sensitivity={sensitivity:.3f}, "
-            f"Specificity={specificity:.3f}"
-        )
-
-        metrics_per_group.append({
-            "accuracy": accuracy,
-            "precision": precision,
-            "sensitivity": sensitivity,
-            "specificity": specificity,
-        })
-
-    return metrics_per_group
+def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
+    """Prints the test accuracy of each group and returns them as a list of floats."""
+    accuracies = []
+    print("Test accuracy per group")
+    print("-" * 40)
+    for g, (model, (x, y), group) in enumerate(zip(models, test_sets, param_groups)):
+        model.eval()
+        _, acc = nntr.run_epoch(model, x, y, cfg["batch_size"], gpu)
+        acc = float(acc)
+        accuracies.append(acc)
+        name = group if isinstance(group, str) else "+".join(group)
+        print(f"Group {g} ({name}): {acc:.2%}")
+    return accuracies
 
 def sample_reference_point(rng_key, priors, param_names):
     """
@@ -502,3 +365,110 @@ def autocorr_fft(x, max_lag):
 
     # Keep only non-negative lags
     return acf_full[:max_lag]
+
+# ---------------------------------------------------------------
+# 1. Helpers
+# ---------------------------------------------------------------
+def set_eval(models):
+    """Disable dropout etc. on every group model."""
+    for m in models:
+        m.eval()
+
+
+def group_names_as_lists(param_groups):
+    """['a', ['b', 'c']] -> [['a'], ['b', 'c']]"""
+    return [[g] if isinstance(g, str) else list(g) for g in param_groups]
+
+
+def normalize_priors(priors, param_stats):
+    out = {}
+    for name, prior in priors.items():
+        mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
+        out[name] = {"range": (prior["range"] - mu) / sigma, "type": prior["type"]}
+    return out
+
+
+def unnormalize_array(arr, names, param_stats, dh):
+    """
+    arr: (..., D) normalised values, columns ordered as `names`.
+    Works for a single vector (D,) or samples (n, D).
+    """
+    as_dict = {name: arr[..., i] for i, name in enumerate(names)}
+    un = dh.unnormalize(as_dict, param_stats)
+    return jnp.stack([un[name] for name in names], axis=-1)
+
+
+# ---------------------------------------------------------------
+# 2. Pick test samples whose label is "true" (last group)
+# ---------------------------------------------------------------
+def select_true_test_samples(test_sets, n_params, n_max=100):
+    """
+    Uses the last group's test set, where all parameters are visible.
+    x columns are [data, mask, m_norm, params], so the last n_params columns
+    are theta and everything before them is the base input.
+
+    Returns:
+        theta_star : (n, n_params) parameters of the true samples
+        xy_test    : (n, F) inputs without theta (data + mask + m_norm)
+    """
+    x_last, y_last = test_sets[-1]
+
+    mask_true = y_last[:, 0] == 1
+    n_sims = int(jnp.minimum(n_max, jnp.sum(mask_true)))
+    true_idx = jnp.nonzero(mask_true, size=n_sims, fill_value=0)[0]
+
+    theta_star = x_last[true_idx, -n_params:]
+    xy_test = x_last[true_idx, :-n_params]
+    return theta_star, xy_test
+
+
+# ---------------------------------------------------------------
+# 3. Posterior
+# ---------------------------------------------------------------
+def make_log_post(models, test_data, norm_priors, visible_indices,
+                  group_indices, group_names_list, nninf):
+    def log_post(theta):
+        return nninf.log_prob_fn_groups(
+            theta, models, test_data, norm_priors,
+            visible_indices, group_indices, group_names_list,
+        )
+    return log_post
+
+
+def sample_posterior_for_index(index, theta_star, xy_test, models, param_groups,
+                               global_param_names, priors, param_stats, key,
+                               gpu, dh, nninf, n_warmup=200, n_samples=2000):
+    """
+    Runs MCMC for test sample `index`.
+    Returns (key, post_unnormed, theta_star_unnormed).
+    """
+    theta_star_unnormed = unnormalize_array(
+        theta_star[index], global_param_names, param_stats, dh
+    )
+
+    group_names_list = group_names_as_lists(param_groups)
+    visible_indices, group_indices = nninf.preprocess_groups(param_groups, global_param_names)
+    norm_priors = normalize_priors(priors, param_stats)
+
+    test_data = jax.device_put(xy_test[index], gpu)
+    theta_init = jax.device_put(theta_star[index], gpu)   # CHANGED: was theta_star[index]
+
+    log_post = make_log_post(models, test_data, norm_priors, visible_indices,
+                             group_indices, group_names_list, nninf)
+
+    print("Launch MCMC ...")
+    key, post = nninf.sample_posterior(
+        log_post,
+        n_warmup=n_warmup,
+        n_samples=n_samples,
+        init_position=theta_init,
+        rng_key=key,
+    )
+    print("...finished")
+
+    post_unnormed = unnormalize_array(post, global_param_names, param_stats, dh)
+    return key, post_unnormed, theta_star_unnormed
+
+
+def prior_ranges(priors, names):
+    return [(float(priors[n]["range"][0]), float(priors[n]["range"][1])) for n in names]

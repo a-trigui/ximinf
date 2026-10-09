@@ -299,9 +299,9 @@ def plot_HD(
     # ============================================
 
     fig.suptitle(
-        rf'$M_{{\rm abs}} = {mabs:.2f}$, '
-        rf'$\beta = {beta:.2f}$, '
-        rf'$\alpha = {alpha:.2f}$'
+        rf'$M_{{\rm abs}} = {mabs:.3f}$, '
+        rf'$\beta = {beta:.3f}$, '
+        rf'$\alpha = {alpha:.3f}$'
         '\n'
         rf'$N_{{\rm SNe}} = {N_sne}$, '
         rf'$N_{{\rm selected}} = {N_sne_selected}$',
@@ -339,3 +339,78 @@ def plot_HD(
     print('Residual scatter:', np.std(residuals))
 
     return fig, (ax1, ax2)
+
+def plot_residuals(data_filt, params, global_param_names, mask):
+    # Define the color maps
+    cmap1 = LinearSegmentedColormap.from_list(
+        'custom_red_beige_blue',
+        ['#1F487E', 'beige', '#A31621']
+    )
+
+    cmap2 = LinearSegmentedColormap.from_list(
+        'custom_green_beige_purple',
+        ['#687444', 'beige', '#5E4983']
+    )
+
+    cmap3 = LinearSegmentedColormap.from_list(
+        'custom_blue_beige_orange',
+        ['#1F487E', 'beige', '#C07835']
+    )
+
+    # Create figure and horizontal subplots
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), constrained_layout=True)
+
+    # First subplot: z vs magobs
+    sc1 = axes[0].scatter(
+        data_filt['z'],
+        data_filt['magobs'],
+        c=data_filt['z'],
+        cmap=cmap1,
+        edgecolor='k'
+    )
+    axes[0].set_title('Magnitude vs Redshift', fontsize=14)
+    axes[0].set_xlabel('Redshift (z)', fontsize=12)
+    axes[0].set_ylabel('Observed Magnitude', fontsize=12)
+    cbar1 = plt.colorbar(sc1, ax=axes[0])
+    cbar1.set_label('Redshift z', fontsize=12)
+
+    # Second subplot: c vs magobs
+    sc2 = axes[1].scatter(
+        data_filt['c'],
+        data_filt['magobs'],
+        c=data_filt['c'],
+        cmap=cmap2,
+        edgecolor='k'
+    )
+    axes[1].set_title('Magnitude vs Color', fontsize=14)
+    axes[1].set_xlabel('Color (c)', fontsize=12)
+    axes[1].set_ylabel('Observed Magnitude', fontsize=12)
+    cbar2 = plt.colorbar(sc2, ax=axes[1])
+    cbar2.set_label('Color value', fontsize=12)
+
+    # Third subplot: x1 vs magobs
+    sc3 = axes[2].scatter(
+        data_filt['x1'],
+        data_filt['magobs'],
+        c=data_filt['x1'],
+        cmap=cmap3,
+        edgecolor='k'
+    )
+    axes[2].set_title('Magnitude vs Stretch', fontsize=14)
+    axes[2].set_xlabel('Stretch (x1)', fontsize=12)
+    axes[2].set_ylabel('Observed Magnitude', fontsize=12)
+    cbar3 = plt.colorbar(sc3, ax=axes[2])
+    cbar3.set_label('Stretch x1', fontsize=12)
+
+    # Construct the title string dynamically
+    title_str = ", ".join(
+        f"{name} = {value:.2f}"
+        for name, value in params.items()
+        if name in global_param_names
+    )
+
+    fig.suptitle(title_str, fontsize=16)
+
+    print(f"{sum(mask)} supernovae")
+
+    plt.show()

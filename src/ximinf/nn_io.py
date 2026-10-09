@@ -7,6 +7,8 @@ import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
 
 from pathlib import Path
+import shutil
+
 
 def save_autoregressive_nn(models_per_group, path, model_config):
     """
@@ -141,3 +143,36 @@ def load_autoregressive_nn(path, model_cls):
         models_per_group.append(model)
 
     return models_per_group, model_config
+
+def _fmt_groups(groups):
+    """['mabs', 'beta', 'alpha'] -> 'mabs-beta-alpha'; nested groups joined with '+'."""
+    return "+".join(
+        "-".join(g) if isinstance(g, (list, tuple)) else str(g) for g in groups
+    )
+
+
+def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
+    """
+    cfg  : training config (batch_size, lr, patience are read from it)
+    ctx  : dict with N and M
+    arch : dict(phi_dropout, rho_dropout, width_phi, width_rho, depth_phi, depth_rho)
+    """
+    return (
+        f"NN_M_N_{ctx['N']}_{n_realisations}_M_{ctx['M']}"
+        f"_batch_{cfg['batch_size']}_lr_{cfg['lr']}"
+        f"_params_{_fmt_groups(param_groups)}"
+        f"_dropout_phi_{arch['phi_dropout']}_rho_{arch['rho_dropout']}"
+        f"_width_phi_{arch['width_phi']}_rho_{arch['width_rho']}"
+        f"_depth_phi_{arch['depth_phi']}_rho_{arch['depth_rho']}"
+        f"_patience_{cfg['patience']}_sim_{sim_idx}"
+    )
+
+
+def save_run(models, model_config, run_name, sim_path, base_dir="../data/NNs"):
+    """Save the networks and copy the config files next to them. Returns the path."""
+    nn_path = Path(base_dir) / run_name
+    save_autoregressive_nn(models, nn_path, model_config)
+    shutil.copy("nn_config.py", nn_path / "nn_config.py")
+    shutil.copy(Path(sim_path) / "sim_config.py", nn_path / "sim_config.py")
+    print(f"NNs saved to {nn_path}")
+    return nn_path
