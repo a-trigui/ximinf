@@ -159,7 +159,7 @@ def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
     """
     return (
         f"NN_M_N_{ctx['N']}_{n_realisations}_M_{ctx['M']}"
-        f"_batch_{cfg['batch_size']}_lr_{cfg['lr']}"
+        f"_batch_{cfg['batch_size']}_lr_{cfg['lr']}_wd_{cfg['wd']}"
         f"_params_{_fmt_groups(param_groups)}"
         f"_dropout_phi_{arch['phi_dropout']}_rho_{arch['rho_dropout']}"
         f"_width_phi_{arch['width_phi']}_rho_{arch['width_rho']}"

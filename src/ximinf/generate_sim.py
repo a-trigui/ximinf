@@ -1,6 +1,7 @@
 # Simulation libraries
 import skysurvey
 import numpy as np
+import pandas as pd
 from pyDOE import lhs  # LHS sampler
 from scipy.special import erfinv, erf
 import scipy.special as sci_spe
@@ -194,6 +195,7 @@ def simulate_one(
     SIMULATION_MODEL,
     cols=None,
     errormodel=None,
+    draw_errors=True,
     survey_name=None,
     rng=None,
     N=None,
@@ -332,15 +334,21 @@ def simulate_one(
         # effect=skysurvey.effects.mw_extinction,
     )
 
+    df = snia.data
+    
     # Noise
-    if errormodel is None:
-        df = snia.data
-    else:
+    if errormodel is not None:
         if rng is None:
             rng = np.random.default_rng()
-        df = apply_gaussian_noise(errormodel, data=snia.data, rng=rng)
-
-        # Apply malmquist bias (selection) if survey-specific parameters are provided
+        df_err = apply_gaussian_noise(errormodel, data=df, rng=rng)
+        if draw_errors:
+            df = df_err
+        else:
+            err_cols = [c for c in df_err.columns if c.endswith("_err")]
+            df = pd.concat([df, df_err[err_cols]], axis=1)
+    
+    
+    # Apply malmquist bias (selection) if survey-specific parameters are provided
     if cut_loc is not None and cut_scale is not None:
         mag = np.asarray(df["magobs"], dtype=np.float32)
 
@@ -351,6 +359,7 @@ def simulate_one(
         mask = np.random.binomial(1, p_detect).astype(bool)
 
         df = df.loc[mask].reset_index(drop=True)
+    
 
     if cols is None:
         if out_df:

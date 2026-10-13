@@ -1,5 +1,6 @@
 # Standard and scientific
 import matplotlib.pyplot as plt
+from collections import deque
 from IPython.display import clear_output
 
 # JAX and Flax (new NNX API)
@@ -206,7 +207,7 @@ def default_cfg():
         weight_decay=1e-3, b1=0.9, decay_steps=1000, decay_rate=0.9,
         val_frac=0.15, test_frac=0.15,
         min_delta=1e-4, min_acc_for_stopping=0.7,
-        plot=True, plot_step=1,
+        plot=True, plot_step=1, swa_k=10
     )
 
 
@@ -377,6 +378,10 @@ def should_stop(val_loss, val_acc, best_val_loss, strikes, cfg):
     stop = val_acc >= cfg["min_acc_for_stopping"] and strikes >= cfg["patience"]
     return stop, min(best_val_loss, val_loss), strikes
 
+def average_states(states):
+    """Uniform mean of a list of nnx.State pytrees."""
+    return jax.tree.map(lambda *xs: jnp.mean(jnp.stack(xs), axis=0), *states)
+
 
 # ===============================================================
 # 7. Training loop for one group
@@ -393,6 +398,8 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
                "val_loss": [], "val_accuracy": []}
     best_val_loss, strikes = np.inf, 0
 
+    snapshots = deque(maxlen=cfg.get("swa_k", 10))
+
     for epoch in range(cfg["epochs"]):
         key, resample_key, perm_key = jax.random.split(key, 3)
 
@@ -406,6 +413,9 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
 
         model.eval()
         va_loss, va_acc = run_epoch(model, val_x, val_y, cfg["batch_size"], gpu)
+
+        # snapshot the raw weights at the end of every epoch
+        snapshots.append(jax.tree.map(jnp.copy, nnx.state(model, nnx.Param)))
 
         history["train_loss"].append(tr_loss)
         history["train_accuracy"].append(tr_acc)
@@ -425,6 +435,10 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
     else:
         print(f"\n Reached maximum epochs: {cfg['epochs']} \n")
 
+    # raw_state = nnx.state(model, nnx.Param)
+    swa_state = average_states(list(snapshots))
+    nnx.update(model, swa_state)
+    model.eval()
     return model, history, key
 
 
