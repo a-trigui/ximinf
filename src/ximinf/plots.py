@@ -460,9 +460,10 @@ def plot_corner_comparison(
     styles=styles,
     methods_to_plot=("NRE", "MLE"),
     contours=(0.68, 0.95),
-    latex_labels=None,
-    save_path="./Images/corner_comparison.png",
+    param_labels=param_labels,
+    save_path=None,
     legend_loc="upper right",
+    param_limits=None,
     show=True,
 ):
     """
@@ -518,9 +519,9 @@ def plot_corner_comparison(
         set.intersection(*[set(posterior_dicts[m]) for m in methods_to_plot])
     )
     assert common_names, "The selected methods share no common parameters."
-    latex_labels = latex_labels or {}
+    param_labels = param_labels or {}
     labels_common = [
-        latex_labels.get(n, n.replace("_", r"\_"))   # fallback: escaped raw name
+        param_labels.get(n, n.replace("_", r"\_"))   # fallback: escaped raw name
         for n in common_names
     ]
     markers = {k: v for k, v in truth_dict.items() if k in common_names}
@@ -541,6 +542,13 @@ def plot_corner_comparison(
     g.settings.title_limit_fontsize = 14
     g.settings.title_limit_labels = False
 
+    if param_limits is not None:
+        param_limits = {
+            name: param_limits[name]
+            for name in common_names
+            if name in param_limits
+        }
+
     g.triangle_plot(
         gd_samples,
         filled=[styles[m]["filled"] for m in methods_to_plot],
@@ -549,6 +557,7 @@ def plot_corner_comparison(
         legend_labels=methods_to_plot,
         legend_loc=legend_loc,
         markers=markers,
+        param_limits=param_limits,
         title_limit=1,
     )
 
@@ -613,3 +622,90 @@ def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels)
 
     plt.tight_layout()
     plt.show()
+
+def plot_posterior_traces(
+    post_unnormed,
+    global_param_names,
+    n_cols=3,
+    figsize_per_col=(4, 3),
+    styles=styles,
+    param_labels=param_labels,
+    method=None,
+    save_path=None,
+    show=True,
+):
+    """
+    Plot posterior samples as a trace for each parameter.
+
+    Parameters
+    ----------
+    post_unnormed : array-like, shape (n_samples, n_params)
+        Posterior samples.
+    global_param_names : sequence of str
+        Parameter names, ordered according to the sample columns.
+    n_cols : int
+        Number of subplot columns.
+    figsize_per_col : tuple of float
+        Width and height scaling per column and row, respectively.
+    save_path : str or None
+        Path to save the figure. None skips saving.
+    show : bool
+        Whether to display the figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    axes : numpy.ndarray
+        Flattened array of active subplot axes.
+    """
+    param_labels = param_labels or {}
+
+    labels_common = [
+        param_labels.get(n, n.replace("_", r"\_"))
+        for n in global_param_names
+    ]
+    
+    post_unnormed = np.asarray(post_unnormed)
+    n_samples, n_params = post_unnormed.shape
+
+    assert len(global_param_names) == n_params, (
+        "The number of parameter names must match the number of sample columns."
+    )
+    assert n_cols > 0, "n_cols must be positive."
+
+    n_rows = int(np.ceil(n_params / n_cols))
+    
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(
+            figsize_per_col[0] * n_cols,
+            figsize_per_col[1] * n_rows,
+        ),
+        squeeze=False,
+    )
+
+    axes = axes.flatten()
+
+    for i in range(n_params):
+        if method is None:
+            axes[i].plot(post_unnormed[:, i], c="k", alpha=0.8)
+        else:
+            axes[i].plot(post_unnormed[:, i], c=styles[method]["color"], alpha=0.8)
+        axes[i].set_title(f"${labels_common[i]}$")
+        axes[i].set_xlabel("Sample")
+        axes[i].set_ylabel("Value")
+
+    # Remove unused subplots
+    for i in range(n_params, len(axes)):
+        fig.delaxes(axes[i])
+
+    plt.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    return fig, axes[:n_params]
