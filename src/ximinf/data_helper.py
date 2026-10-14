@@ -92,6 +92,28 @@ def unnormalize(normed_params, param_stats):
             unnormed[k] = v  # leave untouched
     return unnormed
 
+def group_names_as_lists(param_groups):
+    """['a', ['b', 'c']] -> [['a'], ['b', 'c']]"""
+    return [[g] if isinstance(g, str) else list(g) for g in param_groups]
+
+
+def normalize_priors(priors, param_stats):
+    out = {}
+    for name, prior in priors.items():
+        mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
+        out[name] = {"range": (prior["range"] - mu) / sigma, "type": prior["type"]}
+    return out
+
+
+def unnormalize_array(arr, names, param_stats):
+    """
+    arr: (..., D) normalised values, columns ordered as `names`.
+    Works for a single vector (D,) or samples (n, D).
+    """
+    as_dict = {name: arr[..., i] for i, name in enumerate(names)}
+    un = unnormalize(as_dict, param_stats)
+    return jnp.stack([un[name] for name in names], axis=-1)
+
 # --------------------------------------------------------------------------
 # 0. Save the simulation
 # --------------------------------------------------------------------------

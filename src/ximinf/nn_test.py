@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import ximinf.nn_inference as nninf 
 import ximinf.nn_train as nntr
+import ximinf.data_helper as dh
 import numpy as np
 
 def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
@@ -372,30 +373,6 @@ def set_eval(models):
     for m in models:
         m.eval()
 
-
-def group_names_as_lists(param_groups):
-    """['a', ['b', 'c']] -> [['a'], ['b', 'c']]"""
-    return [[g] if isinstance(g, str) else list(g) for g in param_groups]
-
-
-def normalize_priors(priors, param_stats):
-    out = {}
-    for name, prior in priors.items():
-        mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
-        out[name] = {"range": (prior["range"] - mu) / sigma, "type": prior["type"]}
-    return out
-
-
-def unnormalize_array(arr, names, param_stats, dh):
-    """
-    arr: (..., D) normalised values, columns ordered as `names`.
-    Works for a single vector (D,) or samples (n, D).
-    """
-    as_dict = {name: arr[..., i] for i, name in enumerate(names)}
-    un = dh.unnormalize(as_dict, param_stats)
-    return jnp.stack([un[name] for name in names], axis=-1)
-
-
 # ---------------------------------------------------------------
 # 2. Pick test samples whose label is "true" (last group)
 # ---------------------------------------------------------------
@@ -431,42 +408,6 @@ def make_log_post(models, test_data, norm_priors, visible_indices,
             visible_indices, group_indices, group_names_list,
         )
     return log_post
-
-
-def sample_posterior_for_index(index, theta_star, xy_test, models, param_groups,
-                               global_param_names, priors, param_stats, key,
-                               gpu, dh, nninf, n_warmup=200, n_samples=2000):
-    """
-    Runs MCMC for test sample `index`.
-    Returns (key, post_unnormed, theta_star_unnormed).
-    """
-    theta_star_unnormed = unnormalize_array(
-        theta_star[index], global_param_names, param_stats, dh
-    )
-
-    group_names_list = group_names_as_lists(param_groups)
-    visible_indices, group_indices = nninf.preprocess_groups(param_groups, global_param_names)
-    norm_priors = normalize_priors(priors, param_stats)
-
-    test_data = jax.device_put(xy_test[index], gpu)
-    theta_init = jax.device_put(theta_star[index], gpu)   # CHANGED: was theta_star[index]
-
-    log_post = make_log_post(models, test_data, norm_priors, visible_indices,
-                             group_indices, group_names_list, nninf)
-
-    print("Launch MCMC ...")
-    key, post = nninf.sample_posterior(
-        log_post,
-        n_warmup=n_warmup,
-        n_samples=n_samples,
-        init_position=theta_init,
-        rng_key=key,
-    )
-    print("...finished")
-
-    post_unnormed = unnormalize_array(post, global_param_names, param_stats, dh)
-    return key, post_unnormed, theta_star_unnormed
-
 
 def prior_ranges(priors, names):
     return [(float(priors[n]["range"][0]), float(priors[n]["range"][1])) for n in names]
