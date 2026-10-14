@@ -208,7 +208,7 @@ def save_simulation(
 
     return save_path
 
-def load_simulation(sim_dir):
+def load_simulation(sim_dir, file_name="simulation.h5"):
     """
     Load a saved simulation from an HDF5 file.
 
@@ -246,7 +246,7 @@ def load_simulation(sim_dir):
     sim_dir = Path(sim_dir)
 
     # HDF5 file path
-    save_path = sim_dir / "simulations.h5"
+    save_path = sim_dir / file_name
 
     params_dict = {}
     dict_arrays = {}
