@@ -568,7 +568,7 @@ def plot_corner_comparison(
 
     return g
 
-def plot_ecp(alphas, ecp, sim_path=None):
+def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
     fig, ax = plt.subplots(figsize=(8, 6))
 
     ax.plot(1 - alphas, ecp, 'o:', ms=6, c=RED, alpha=0.6, label='ECP')  #, yerr=se , label='ECP ± SE'
@@ -583,12 +583,12 @@ def plot_ecp(alphas, ecp, sim_path=None):
 
     fig.tight_layout()
     if sim_path is not None:
-        fig.savefig(f"{sim_path}/Images/tarp_mle.png")
+        fig.savefig(f"{sim_path}/Images/{file_name}.png")
     plt.show()
     
     return fig, ax
 
-def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels):
+def plot_systematics_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path, file_name="systematics"):
     figs, axes = plt.subplots(1, len(global_param_names), figsize=[len(global_param_names)*4, 3])
     axes = np.atleast_1d(axes)
     diag_cov = np.diagonal(cov_list, axis1=1, axis2=2)
@@ -619,6 +619,7 @@ def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels)
 
     handles, labels = axes[0].get_legend_handles_labels()
     figs.legend(handles, labels)
+    figs.savefig(f"{sim_path}/Images/{file_name}.png")
 
     plt.tight_layout()
     plt.show()
@@ -689,7 +690,7 @@ def plot_posterior_traces(
 
     for i in range(n_params):
         if method is None:
-            axes[i].plot(post_unnormed[:, i], c="k", alpha=0.8)
+            axes[i].plot(post_unnormed[:, i], c="gray", alpha=0.8)
         else:
             axes[i].plot(post_unnormed[:, i], c=styles[method]["color"], alpha=0.8)
         axes[i].set_title(f"${labels_common[i]}$")
