@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import ximinf.nn_inference as nninf 
 import ximinf.nn_train as nntr
+import numpy as np
 
 def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
     """Prints the test accuracy of each group and returns them as a list of floats."""
@@ -469,3 +470,134 @@ def sample_posterior_for_index(index, theta_star, xy_test, models, param_groups,
 
 def prior_ranges(priors, names):
     return [(float(priors[n]["range"][0]), float(priors[n]["range"][1])) for n in names]
+
+def fit_cosmologix_datasets(
+    list_of_dfs, fitter, fiducial_cosmo,
+    param_names, params_of_interest,
+    build_likelihood,
+):
+    """
+    Fit each simulated dataset and extract the Gaussian posterior approximation.
+
+    Parameters
+    ----------
+    build_likelihood : callable
+        Function taking a DataFrame and returning a likelihood object.
+
+    Returns
+    -------
+    mu_list  : array (Nsims, ndim_interest)
+    cov_list : array (Nsims, ndim_interest, ndim_interest)
+    """
+    indices = [param_names.index(p) for p in params_of_interest]
+    Nsims = len(list_of_dfs)
+    ndim = len(params_of_interest)
+
+    mu_list = np.zeros((Nsims, ndim))
+    cov_list = np.zeros((Nsims, ndim, ndim))
+
+    for i, df in enumerate(list_of_dfs):
+        print(f'Iteration {i+1}/{Nsims}', end='\r')
+
+        likelihood = build_likelihood(df)
+
+        result = fitter.fit([likelihood], fixed=fiducial_cosmo)
+
+        mu = np.array(result["x"])
+        cov = np.array(result["inverse_FIM"])
+
+        mu_list[i] = mu[indices]
+        cov_list[i] = cov[np.ix_(indices, indices)]
+
+    return mu_list, cov_list
+
+def sample_from_gaussians(mu_list, cov_list, n_posterior_samples=2000, rng=None):
+    """
+    Draw posterior samples from Gaussian approximations.
+
+    Parameters
+    ----------
+    mu_list : array (Nsims, ndim)
+        Posterior means.
+    cov_list : array (Nsims, ndim, ndim)
+        Posterior covariance matrices.
+    n_posterior_samples : int
+        Number of posterior samples per simulation.
+    rng : numpy.random.Generator, optional
+        Random number generator.
+
+    Returns
+    -------
+    samples : array (Nsims, n_posterior_samples, ndim)
+        Posterior samples for each simulation.
+    """
+    rng = rng or np.random.default_rng()
+    Nsims, ndim = mu_list.shape
+
+    samples = np.zeros((Nsims, n_posterior_samples, ndim))
+
+    for i in range(Nsims):
+        samples[i] = rng.multivariate_normal(
+            mu_list[i], cov_list[i], size=n_posterior_samples
+        )
+
+    return samples
+
+def run_tarp_from_samples(
+    posterior_samples, true_thetas,
+    prior_low, prior_high,
+    n_alpha=31, rng=None,
+):
+    """
+    Compute the TARP empirical coverage curve from posterior samples.
+
+    Parameters
+    ----------
+    posterior_samples : array (Nsims, n_posterior_samples, ndim)
+        Posterior samples for each simulation.
+    true_thetas : array (Nsims, ndim)
+        True parameter values, in the same parameter order.
+    prior_low, prior_high : array (ndim,)
+        Prior bounds.
+    n_alpha : int
+        Number of credibility levels.
+    rng : numpy.random.Generator, optional
+        Random number generator.
+
+    Returns
+    -------
+    alphas, ecp, f_values
+    """
+    rng = rng or np.random.default_rng()
+    Nsims = len(posterior_samples)
+
+    f_values = np.zeros(Nsims)
+    width = prior_high - prior_low
+
+    for i in range(Nsims):
+        theta_ij = posterior_samples[i]
+
+        # --- true parameter vector for this simulation ---
+        theta_true = true_thetas[i]
+
+        # --- reference point, drawn from the prior, independent of x_i ---
+        theta_r = rng.uniform(prior_low, prior_high)
+
+        # --- standardized Euclidean distance ---
+        d_ij = np.linalg.norm(
+            (theta_ij - theta_r) / width, axis=1
+        )
+        d_true = np.linalg.norm(
+            (theta_true - theta_r) / width
+        )
+
+        f_values[i] = np.mean(d_ij < d_true)
+
+    # --- ECP curve over credibility levels alpha ---
+    alphas = np.linspace(0.0, 1.0, n_alpha)
+    ecp = np.array([
+        np.mean(f_values < (1 - a))
+        for a in alphas
+    ])
+
+    return alphas, ecp, f_values
