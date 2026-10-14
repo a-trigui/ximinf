@@ -1,4 +1,5 @@
 # Standard and scientific
+# Standard and scientific
 import matplotlib.pyplot as plt
 from collections import deque
 from IPython.display import clear_output
@@ -81,96 +82,27 @@ def setup_jax_device():
     return device, backend, cpu, gpu
 
 @nnx.jit
-def loss_fn(model, batch):
-    """
-    Compute the binary cross-entropy loss for a batch.
-
-    Parameters
-    ----------
-    model : nnx.Module
-        Neural network model used to compute the prediction logits.
-    batch : tuple
-        Tuple containing ``x_batch`` and ``labels``, where ``x_batch`` is the
-        input batch and ``labels`` contains the corresponding binary targets.
-
-    Returns
-    -------
-    loss : jax.Array
-        Mean binary cross-entropy loss over the batch.
-    logits : jax.Array
-        Raw model logits for the input batch.
-
-    Notes
-    -----
-    The binary cross-entropy is computed directly from the logits using
-    ``optax.sigmoid_binary_cross_entropy``.
-    """
-
+def loss_fn(model, batch, pos_weight):
     x_batch, labels = batch
     logits = model(x_batch)
-    data_loss = optax.sigmoid_binary_cross_entropy(logits, labels).mean()
-
-    loss = data_loss
+    bce = optax.sigmoid_binary_cross_entropy(logits, labels)
+    w = jnp.where(labels > 0.5, pos_weight, 1.0)
+    loss = (w * bce).sum() / w.sum()
     return loss, logits
 
 @nnx.jit
-def accuracy_fn(model, batch):
-    """
-    Compute binary classification accuracy for a batch.
-
-    Parameters
-    ----------
-    model : nnx.Module
-        Neural network model used to compute prediction logits.
-    batch : tuple
-        Tuple containing ``x_batch`` and ``labels``, where ``x_batch`` is the
-        input batch and ``labels`` contains the corresponding binary targets.
-
-    Returns
-    -------
-    accuracy : jax.Array
-        Fraction of samples for which the predicted binary class matches the
-        target class.
-
-    Notes
-    -----
-    Predictions are obtained by applying a sigmoid to the model logits and
-    thresholding the resulting probabilities at 0.5. Target labels are
-    similarly interpreted using a threshold of 0.5.
-    """
-
+def accuracy_fn(model, batch, pos_weight):
     x_batch, labels = batch
-    logits = model(x_batch)  # Ensure shape matches labels
-    preds = (jax.nn.sigmoid(logits) > 0.5)
+    logits = model(x_batch)
+    preds = jax.nn.sigmoid(logits) > 0.5
     comp = labels > 0.5
-    accuracy = jnp.mean(preds == comp)
-    return accuracy
+    w = jnp.where(comp, pos_weight, 1.0)
+    return (w * (preds == comp)).sum() / w.sum()
 
 @nnx.jit
-def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch):
-    """
-    Perform one optimization step on a training batch.
-
-    Parameters
-    ----------
-    model : nnx.Module
-        Neural network model whose parameters are optimized.
-    optimizer : nnx.Optimizer
-        NNX optimizer used to update the model parameters.
-    batch : tuple
-        Tuple containing ``x_batch`` and ``labels`` for the current training
-        batch.
-
-    Returns
-    -------
-    None
-        The model and optimizer are updated in place.
-    """
-
+def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch, pos_weight):
     grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
-    (loss, logits), grads = grad_fn(model, batch)
-
-    # Update optimizer (in-place)
+    (loss, logits), grads = grad_fn(model, batch, pos_weight)
     optimizer.update(grads)
 
 @nnx.jit
@@ -204,11 +136,16 @@ def pred_step(model, x_batch):
 def default_cfg():
     return dict(
         epochs=500, patience=10, lr=1e-4, batch_size=500,
-        weight_decay=1e-3, b1=0.9, decay_steps=1000, decay_rate=0.9,
+        wd=1e-3, b1=0.9, decay_steps=1000, decay_rate=0.9,
         val_frac=0.15, test_frac=0.15,
         min_delta=1e-4, min_acc_for_stopping=0.7,
-        plot=True, plot_step=1, swa_k=10
+        plot=True, plot_step=1, swa_k=10,
+        n_neg=5,          # K negatives per positive
+        balance=True,     # weight positives by K so classes count equally
     )
+def get_pos_weight(cfg):
+    return float(cfg["n_neg"]) if cfg["balance"] else 1.0
+
 
 
 # ===============================================================
@@ -250,56 +187,78 @@ def build_group_indices(param_groups, param_names):
 # ===============================================================
 # 4. Inputs / labels for one group
 # ===============================================================
-def make_base_inputs(split):
-    """Constant part of the input: [data, mask, m_norm]."""
-    return jnp.concatenate([split["data"], split["mask"], split["m_norm"]], axis=-1)
+def add_noise(data, scale, key):
+    return data + scale * jax.random.normal(key, data.shape, data.dtype)
 
 
-def make_group_xy(split, base, group_idx, key, device):
-    """Draw labels; negatives = current group's params taken from another simulation."""
-    cur, vis = group_idx
-    n = base.shape[0]
-    k_lab, k_perm = jax.random.split(key)
-    labels = jax.random.uniform(k_lab, (n,)) > 0.5      # True -> real params
-
-    # cyclic shift along a random ordering -> every sample gets another sample's θ
-    p = jax.random.permutation(k_perm, n)
-    src = jnp.zeros(n, dtype=int).at[p].set(jnp.roll(p, 1))
-
-    true_p = split["true_params"]
-    shuffled_cur = true_p[src][:, cur]                  # same permutation for all columns of the group
-
-    params = true_p.at[:, cur].set(
-        jnp.where(labels[:, None], true_p[:, cur], shuffled_cur)
-    )
-    x = jnp.concatenate([base, params[:, vis]], axis=-1)
-    y = labels.astype(jnp.int32)[:, None]
-    return jax.device_put(x, device), jax.device_put(y, device)
+def freeze_noise(dataset, key, names=("val", "test")):
+    """One fixed noisy realisation for val/test, shared by all groups."""
+    for name in names:
+        key, k = jax.random.split(key)
+        s = dataset[name]
+        s["data"] = add_noise(s["data"], s["noise_scale"], k)
+        del s["noise_scale"]
+    return dataset
 
 
-def make_resampler(split, group_idx, device):
-    """Returns resample(key) -> (x, y); new labels at every call."""
-    base = make_base_inputs(split)
+def make_base_inputs(split, key=None):
+    """[data (noisy if key given), mask, m_norm]."""
+    data = split["data"]
+    if key is not None:
+        data = add_noise(data, split["noise_scale"], key)
+    return jnp.concatenate([data, split["mask"], split["m_norm"]], axis=-1)
 
+
+def make_resampler(split, group_idx, device, K):
     def resample(key):
-        return make_group_xy(split, base, group_idx, key, device)
-
+        key_noise, key_neg = jax.random.split(key)
+        base = make_base_inputs(split, key_noise)          # fresh noise every epoch
+        return make_group_xy(split, base, group_idx, key_neg, device, K)
     return resample
 
 
-def make_group_data(dataset, group_idx, key, device):
+def make_group_xy(split, base, group_idx, key, device, K):
     """
-    train : resampler (labels redrawn each epoch)
-    val / test : fixed (x, y), drawn once
+    Returns N positives followed by K*N negatives (N*(1+K) rows).
+    Negative k (k=1..K) replaces the current group's params of sample i with those
+    of sample p[(pos(i)+k) % N] for one random ordering p, so each sample gets K
+    distinct donors, none of which is itself.
     """
+    cur, vis = group_idx
+    n = base.shape[0]
+    assert 1 <= K < n, "need 1 <= K < N so that donors are distinct and never self"
+
+    p = jax.random.permutation(key, n)
+    idx = jnp.arange(n)
+
+    def donor_map(k):
+        # src[p[i]] = p[(i + k) % n]
+        return jnp.zeros(n, dtype=int).at[p].set(p[(idx + k) % n])
+
+    src = jax.vmap(donor_map)(jnp.arange(1, K + 1)).reshape(-1)   # (K*n,), k-major
+
+    true_p = split["true_params"]
+    neg_params = jnp.tile(true_p, (K, 1)).at[:, cur].set(true_p[src][:, cur])
+
+    params = jnp.concatenate([true_p, neg_params], axis=0)         # (n*(1+K), P)
+    base_all = jnp.concatenate([base, jnp.tile(base, (K, 1))], axis=0)
+
+    x = jnp.concatenate([base_all, params[:, vis]], axis=-1)
+    y = jnp.concatenate([jnp.ones(n, dtype=jnp.int32),
+                         jnp.zeros(K * n, dtype=jnp.int32)])[:, None]
+    return jax.device_put(x, device), jax.device_put(y, device)
+
+
+
+def make_group_data(dataset, group_idx, key, device, K):
     k_val, k_test = jax.random.split(key)
     fixed = {}
     for name, k in [("val", k_val), ("test", k_test)]:
         base = make_base_inputs(dataset[name])
-        fixed[name] = make_group_xy(dataset[name], base, group_idx, k, device)
+        fixed[name] = make_group_xy(dataset[name], base, group_idx, k, device, K)
 
     return {
-        "resample_train": make_resampler(dataset["train"], group_idx, device),
+        "resample_train": make_resampler(dataset["train"], group_idx, device, K),
         "val": fixed["val"],
         "test": fixed["test"],
     }
@@ -317,32 +276,30 @@ def make_optimizer(model, cfg):
     return nnx.Optimizer(
         model,
         optax.adamw(learning_rate=schedule, b1=cfg["b1"],
-                    weight_decay=cfg["weight_decay"]),
+                    weight_decay=cfg["wd"]),
     )
 
 
 # ===============================================================
 # 6. Training loop helpers
 # ===============================================================
-def run_epoch(model, x, y, batch_size, gpu, optimizer=None):
-    """
-    One pass over (x, y) in batches. If optimizer is given, also updates the model.
-    Returns (mean_loss, mean_accuracy).
-    """
-    total_loss, total_acc = 0.0, 0.0
+def run_epoch(model, x, y, batch_size, gpu, pos_weight, optimizer=None):
+    total_loss, total_acc, total_w = 0.0, 0.0, 0.0
     for i in range(0, len(x), batch_size):
         bx = jax.device_put(x[i:i + batch_size], gpu)
         by = jax.device_put(y[i:i + batch_size], gpu)
 
-        loss, _ = loss_fn(model, (bx, by))
-        acc = accuracy_fn(model, (bx, by))
-        total_loss += loss * len(bx)
-        total_acc += acc * len(bx)
+        loss, _ = loss_fn(model, (bx, by), pos_weight)
+        acc = accuracy_fn(model, (bx, by), pos_weight)
+        bw = jnp.where(by > 0.5, pos_weight, 1.0).sum()   # batch weight
+        total_loss += loss * bw
+        total_acc += acc * bw
+        total_w += bw
 
         if optimizer is not None:
-            train_step(model, optimizer, (bx, by))
+            train_step(model, optimizer, (bx, by), pos_weight)
 
-    return total_loss / len(x), total_acc / len(x)
+    return total_loss / total_w, total_acc / total_w
 
 
 def plot_history(history, epoch, M, N, patience, group_id, group_params):
@@ -408,11 +365,12 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
         perm = jax.random.permutation(perm_key, train_x.shape[0])
         train_x, train_y = train_x[perm], train_y[perm]
 
+        pos_weight = get_pos_weight(cfg)
         model.train()
-        tr_loss, tr_acc = run_epoch(model, train_x, train_y, cfg["batch_size"], gpu, optimizer)
+        tr_loss, tr_acc = run_epoch(model, train_x, train_y, cfg["batch_size"], gpu, pos_weight, optimizer)
 
         model.eval()
-        va_loss, va_acc = run_epoch(model, val_x, val_y, cfg["batch_size"], gpu)
+        va_loss, va_acc = run_epoch(model, val_x, val_y, cfg["batch_size"], gpu, pos_weight)
 
         # snapshot the raw weights at the end of every epoch
         snapshots.append(jax.tree.map(jnp.copy, nnx.state(model, nnx.Param)))
@@ -457,7 +415,7 @@ def train_all_groups(models, param_groups, dataset, key, cfg, ctx):
         print(f"\n=== Training model for group {g}: {group} ===")
 
         key, data_key = jax.random.split(key)
-        data = make_group_data(dataset, gidx, data_key, ctx["cpu"])
+        data = make_group_data(dataset, gidx, data_key, ctx["cpu"], cfg["n_neg"])
         
         n_train = int(ctx["N"] * (1 - cfg["val_frac"] - cfg["test_frac"]))
         

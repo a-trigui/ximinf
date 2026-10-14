@@ -606,6 +606,8 @@ def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels)
         )
         axes[i].set_xlabel(f"${labels_common[i]}$")
 
+    axes[0].set_ylabel("Density")
+
     handles, labels = axes[0].get_legend_handles_labels()
     figs.legend(handles, labels)
 
