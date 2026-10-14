@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from getdist import plots, MCSamples
+from scipy import stats
 
 BLUE = '#1F487E'
 RED = '#A31621'
@@ -17,6 +18,15 @@ styles = {
     "NRE":        {"color": RED, "filled": True},
     "Standax":    {"color": GOLD, "filled": False},
     "MLE": {"color": BLUE, "filled": False},
+}
+
+param_labels = {
+    "mabs": r"\Delta \mu",
+    "offset": r"\Delta \mu",
+    "alpha": r"\alpha",
+    "beta": r"\beta",
+    "gamma": r"\gamma",
+    "sigma_int": r"\sigma_{int}"
 }
 
 def apply_default_settings():
@@ -548,3 +558,55 @@ def plot_corner_comparison(
         plt.show()
 
     return g
+
+def plot_ecp(alphas, ecp, sim_path=None):
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    ax.plot(1 - alphas, ecp, 'o:', ms=6, c=RED, alpha=0.6, label='ECP')  #, yerr=se , label='ECP ± SE'
+    ax.plot([0, 1], [0, 1], '-', lw=1, c=BLUE, label='Ideal')
+
+    ax.set_xlabel("Credibility")
+    ax.set_ylabel("Coverage")
+    # ax.set_title("Expected Coverage Probability")
+    ax.grid(True, linestyle=':')
+    ax.legend()
+    ax.set_aspect('equal', adjustable='box')
+
+    fig.tight_layout()
+    if sim_path is not None:
+        fig.savefig(f"{sim_path}/Images/tarp_mle.png")
+    plt.show()
+    
+    return fig, ax
+
+def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels):
+    figs, axes = plt.subplots(1, len(global_param_names), figsize=[len(global_param_names)*4, 3])
+    axes = np.atleast_1d(axes)
+
+    param_labels = param_labels or {}
+
+    labels_common = [
+        param_labels.get(n, n.replace("_", r"\_"))
+        for n in global_param_names
+    ]
+
+    for i in range(len(global_param_names)):
+        axes[i].hist(
+            (mu_list[:, i] - true_thetas[:, i]) / np.sqrt(cov_list[:, i]),
+            density=True,
+            bins=20,
+            color=BLUE,
+            alpha=0.8
+        )
+        x = np.linspace(-5, 5, 1000)
+        axes[i].plot(
+            x, stats.norm.pdf(x, 0, 1),
+            lw=2, c=RED, label=r"$\mathcal{N}(0,1)$"
+        )
+        axes[i].set_xlabel(f"${labels_common[i]}$")
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    figs.legend(handles, labels, loc="upper left")
+
+    plt.tight_layout()
+    plt.show()
