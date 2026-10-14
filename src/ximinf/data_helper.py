@@ -577,6 +577,7 @@ def remove_cosmology(
 
     The function modifies ``data_dict`` in place and also returns it.
     """
+    data_dict = dict(data_dict)
 
     z = data_dict["z"]
     magobs = data_dict["magobs"]  # (N, M)

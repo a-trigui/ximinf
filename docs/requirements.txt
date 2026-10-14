@@ -11,6 +11,7 @@ pyDOE>=0.3.8,<1
 astropy>=6.0.0,<7
 blackjax>=1.0.0,<2
 ipython
+ipykernel<7
 
 # Sky survey related
 skysurvey>=0.23.0,<1

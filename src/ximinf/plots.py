@@ -588,7 +588,7 @@ def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
     
     return fig, ax
 
-def plot_systematics_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path, file_name="systematics"):
+def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path, file_name="systematics"):
     figs, axes = plt.subplots(1, len(global_param_names), figsize=[len(global_param_names)*4, 3])
     axes = np.atleast_1d(axes)
     diag_cov = np.diagonal(cov_list, axis1=1, axis2=2)

@@ -12,301 +12,12 @@ def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
     print("-" * 40)
     for g, (model, (x, y), group) in enumerate(zip(models, test_sets, param_groups)):
         model.eval()
-        _, acc = nntr.run_epoch(model, x, y, cfg["batch_size"], gpu)
+        _, acc = nntr.run_epoch(model, x, y, cfg["batch_size"], gpu, pos_weight=1)
         acc = float(acc)
         accuracies.append(acc)
         name = group if isinstance(group, str) else "+".join(group)
         print(f"Group {g} ({name}): {acc:.2%}")
     return accuracies
-
-def sample_reference_point(rng_key, priors, param_names):
-    """
-    Sample a parameter-space reference point uniformly from the prior ranges.
-
-    Each parameter is sampled independently from a uniform distribution
-    between the lower and upper bounds specified in ``priors``. The function
-    also returns an updated JAX random key for subsequent random-number
-    generation.
-
-    Parameters
-    ----------
-    rng_key : jax.Array
-        JAX PRNG key used to generate the random sample.
-
-    priors : dict
-        Dictionary containing the prior definition for each parameter.
-        For every parameter in ``param_names``, ``priors[name]["range"]``
-        must contain the lower and upper bounds of the prior interval.
-
-    param_names : sequence of str
-        Names of the parameters to sample. The ordering determines the
-        ordering of the returned parameter vector.
-
-    Returns
-    -------
-    rng_key : jax.Array
-        Updated JAX PRNG key.
-
-    theta : jax.Array
-        One-dimensional array containing the sampled parameter values,
-        ordered according to ``param_names``.
-
-    Notes
-    -----
-    The sampling is uniform in the parameterization defined by the prior
-    ranges. No normalization using ``param_stats`` is applied.
-    """
-    rng_key, subkey = jax.random.split(rng_key)
-
-    param_names = list(param_names)
-
-    lows = jnp.array([priors[name]["range"][0] for name in param_names])
-    highs = jnp.array([priors[name]["range"][1] for name in param_names])
-
-    u = jax.random.uniform(subkey, shape=(len(param_names),))
-    theta = lows + u * (highs - lows)
-
-    return rng_key, theta
-
-def one_sample_step_groups(
-    rng_key,
-    xi,
-    theta_star,
-    priors,
-    param_names,
-    models_per_group,
-    visible_indices,
-    group_indices,
-    group_names_list,
-    param_stats,
-    n_warmup,
-    n_samples,
-):
-    
-    """
-    Perform posterior sampling for one simulated observation and compute
-    its TARP rank statistic.
-
-    A reference point is first sampled uniformly from the prior parameter
-    ranges. The posterior distribution conditioned on ``xi`` is then
-    sampled using the group-specific neural-network inference models.
-    The TARP statistic is computed as the fraction of posterior samples
-    lying closer to the reference point than the true parameter
-    ``theta_star``.
-
-    Parameters
-    ----------
-    rng_key : jax.Array
-        JAX PRNG key used for reference-point generation and posterior
-        sampling.
-
-    xi : jax.Array
-        Observed or simulated data conditioned upon when evaluating the
-        posterior.
-
-    theta_star : jax.Array
-        True parameter values associated with ``xi``.
-
-    priors : dict
-        Prior definitions for the model parameters.
-
-    param_names : sequence of str
-        Names of the inferred parameters. The ordering must be consistent
-        with the parameter vectors used by the inference models.
-
-    models_per_group : sequence
-        Collection of trained neural-network inference models, with one
-        model associated with each parameter group.
-
-    visible_indices : sequence
-        Indices specifying which parameters are visible to the corresponding
-        group-specific inference models.
-
-    group_indices : sequence
-        Indices defining the parameter grouping used by the inference
-        models.
-
-    group_names_list : sequence
-        Names identifying the parameter groups.
-
-    param_stats : dict
-        Statistics used to transform posterior samples back to the original
-        parameterization. For each parameter, ``param_stats[name]`` must
-        contain ``"mu"`` and ``"sigma"``.
-
-    n_warmup : int
-        Number of warm-up iterations used by the posterior sampler.
-
-    n_samples : int
-        Number of posterior samples to draw after warm-up.
-
-    Returns
-    -------
-    f_val : jax.Array
-        TARP rank statistic, defined as the fraction of posterior samples
-        whose Euclidean distance from the sampled reference point is smaller
-        than the distance between ``theta_star`` and the same reference
-        point.
-
-    posterior_unnormed : jax.Array
-        Posterior samples transformed from the normalized parameterization
-        back to the original parameterization using ``param_stats``.
-    """
-    rng_key, key_r0, key_mcmc = jax.random.split(rng_key, 3)
-
-    _, theta_r0 = sample_reference_point(key_r0, priors, param_names)
-
-    def log_post(theta):
-        return nninf.log_prob_fn_groups(
-            theta,
-            models_per_group,
-            xi,
-            priors,
-            visible_indices,
-            group_indices,
-            group_names_list,
-        )
-
-    rng_key, posterior = nninf.sample_posterior(
-        log_post, n_warmup, n_samples, theta_star, key_mcmc
-    )
-
-    mus = jnp.array([param_stats[name]["mu"] for name in param_names])
-    sigmas = jnp.array([param_stats[name]["sigma"] for name in param_names])
-    
-    posterior_unnormed = posterior * sigmas + mus
-    # theta_star_unnormed = theta_star * sigmas + mus
-    # theta_r0_unnormed = theta_r0 * sigmas + mus
-
-    # d_star = jnp.linalg.norm(theta_star_unnormed - theta_r0_unnormed)
-    # d_samples = jnp.linalg.norm(posterior_unnormed - theta_r0_unnormed, axis=1)
-
-    d_star = jnp.linalg.norm(theta_star - theta_r0)
-    d_samples = jnp.linalg.norm(posterior - theta_r0, axis=1)
-
-    f_val = jnp.mean(d_samples < d_star)
-
-    return f_val, posterior_unnormed
-
-
-def compute_ecp_tarp_groups(
-    models_per_group,
-    x_list,
-    theta_star_list,
-    alpha_list,
-    priors,
-    param_names,
-    visible_indices,
-    group_indices,
-    group_names_list,
-    param_stats,
-    n_warmup,
-    n_samples,
-    rng_key,
-):
-    """
-    Compute empirical coverage probabilities using TARP for grouped models.
-
-    The function evaluates the TARP statistic for each simulated observation
-    and its corresponding true parameter value using ``jax.lax.scan``.
-    Empirical coverage probabilities are then computed for each requested
-    credibility level.
-
-    Parameters
-    ----------
-    models_per_group : sequence
-        Collection of trained neural-network inference models, with one
-        model associated with each parameter group.
-
-    x_list : jax.Array
-        Collection of simulated observations used to evaluate posterior
-        coverage.
-
-    theta_star_list : jax.Array
-        True parameter values corresponding to the observations in
-        ``x_list``.
-
-    alpha_list : sequence of float
-        Significance levels at which empirical coverage is evaluated.
-        For each ``alpha``, the function computes the fraction of TARP
-        statistics satisfying ``f < 1 - alpha``.
-
-    priors : dict
-        Prior definitions for the inferred parameters.
-
-    param_names : sequence of str
-        Names of the inferred parameters.
-
-    visible_indices : sequence
-        Indices specifying the parameters visible to each group-specific
-        inference model.
-
-    group_indices : sequence
-        Indices defining the parameter grouping used by the inference
-        models.
-
-    group_names_list : sequence
-        Names identifying the parameter groups.
-
-    param_stats : dict
-        Statistics used to transform posterior samples from the normalized
-        parameterization to the original parameterization. Each parameter
-        must have ``"mu"`` and ``"sigma"`` entries.
-
-    n_warmup : int
-        Number of warm-up iterations used for each posterior sample.
-
-    n_samples : int
-        Number of posterior samples generated for each observation.
-
-    rng_key : jax.Array
-        JAX PRNG key used for all random sampling operations.
-
-    Returns
-    -------
-    ecp_vals : list of jax.Array
-        Empirical coverage probabilities corresponding to the values in
-        ``alpha_list``. Each value is the fraction of TARP statistics
-        satisfying ``f < 1 - alpha``.
-
-    f_vals : jax.Array
-        TARP statistic for each observation in ``x_list``.
-
-    posteriors : jax.Array
-        Posterior samples obtained for each observation.
-
-    rng_key : jax.Array
-        Updated JAX PRNG key after all sampling operations.
-    """
-
-    def scan_step(rng_key, xi_theta):
-        xi, theta_star = xi_theta
-        rng_key, subkey = jax.random.split(rng_key)
-
-        f_val, posterior = one_sample_step_groups(
-            subkey,
-            xi,
-            theta_star,
-            priors,
-            param_names,
-            models_per_group,
-            visible_indices,
-            group_indices,
-            group_names_list,
-            param_stats,
-            n_warmup,
-            n_samples,
-        )
-
-        return rng_key, (f_val, posterior)
-    
-    rng_key, (f_vals, posteriors) = jax.lax.scan(
-        scan_step, rng_key, (x_list, theta_star_list)
-    )
-
-    ecp_vals = [jnp.mean(f_vals < (1.0 - alpha)) for alpha in alpha_list]
-
-    return ecp_vals, f_vals, posteriors, rng_key
 
 def autocorr_fft(x, max_lag):
     """
@@ -400,17 +111,6 @@ def select_true_test_samples(test_sets, n_params, n_max=100):
 # ---------------------------------------------------------------
 # 3. Posterior
 # ---------------------------------------------------------------
-def make_log_post(models, test_data, norm_priors, visible_indices,
-                  group_indices, group_names_list, nninf):
-    def log_post(theta):
-        return nninf.log_prob_fn_groups(
-            theta, models, test_data, norm_priors,
-            visible_indices, group_indices, group_names_list,
-        )
-    return log_post
-
-def prior_ranges(priors, names):
-    return [(float(priors[n]["range"][0]), float(priors[n]["range"][1])) for n in names]
 
 def fit_cosmologix_datasets(
     list_of_dfs, fitter, fiducial_cosmo,
@@ -484,61 +184,205 @@ def sample_from_gaussians(mu_list, cov_list, n_posterior_samples=2000, rng=None)
 
     return samples
 
+# =====================================================================
+# 1. Parameter bookkeeping (used identically by both pipelines)
+# =====================================================================
+def prior_bounds(priors, names):
+    """(low, high) arrays, ordered like ``names``, from ``priors[n]['range']``."""
+    low = np.array([float(priors[n]["range"][0]) for n in names])
+    high = np.array([float(priors[n]["range"][1]) for n in names])
+    return low, high
+
+
+def stack_thetas(params, names):
+    """dict of per-sim arrays -> (N_sims, ndim) array ordered like ``names``."""
+    return np.column_stack([np.asarray(params[n]) for n in names])
+
+
+def _stats(names, param_stats):
+    mu = np.array([param_stats[n]["mu"] for n in names])
+    sigma = np.array([param_stats[n]["sigma"] for n in names])
+    return mu, sigma
+
+
+def normalize(theta, names, param_stats):
+    """physical -> normalized. Works on any (..., ndim) numpy or jax array."""
+    mu, sigma = _stats(names, param_stats)
+    return (theta - mu) / sigma
+
+
+def unnormalize(theta, names, param_stats):
+    """normalized -> physical. Works on any (..., ndim) numpy or jax array."""
+    mu, sigma = _stats(names, param_stats)
+    return theta * sigma + mu
+
+
+def normalize_priors(priors, param_stats):
+    """Same as the notebook loop: map each prior range to normalized space."""
+    out = {}
+    for name, prior in priors.items():
+        mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
+        out[name] = {
+            "range": (np.asarray(prior["range"]) - mu) / sigma,
+            "type": prior["type"],
+        }
+    return out
+
+
+# =====================================================================
+# 2. TARP core -- backend independent, shared by both pipelines
+# =====================================================================
+def sample_reference_points(rng, prior_low, prior_high, n):
+    """
+    Draw ``n`` TARP reference points uniformly in the prior box.
+
+    ``rng`` can be a seed or a ``numpy.random.Generator``. Re-using the same
+    reference points for several methods gives a paired comparison: the
+    difference between the ECP curves then comes from the posteriors only.
+    """
+    rng = np.random.default_rng(rng)
+    return rng.uniform(prior_low, prior_high, size=(n, len(prior_low)))
+
+
+def tarp_f_values(posterior_samples, true_thetas, theta_ref, prior_low, prior_high):
+    """
+    TARP statistic f_i = fraction of posterior samples closer to the
+    reference point than the truth. Distances are measured in units of the
+    prior width, so no parameter dominates and the metric does not depend
+    on how the parameters happen to be normalized.
+
+    posterior_samples : (N, S, ndim); true_thetas, theta_ref : (N, ndim)
+    """
+    width = np.asarray(prior_high) - np.asarray(prior_low)
+    post = np.asarray(posterior_samples)
+    d_samples = np.linalg.norm((post - theta_ref[:, None, :]) / width, axis=-1)
+    d_true = np.linalg.norm((np.asarray(true_thetas) - theta_ref) / width, axis=-1)
+    return np.mean(d_samples < d_true[:, None], axis=1)
+
+
+def ecp_from_f(f_values, alphas):
+    """Empirical coverage: ECP(alpha) = mean(f < 1 - alpha)."""
+    f_values = np.asarray(f_values)
+    alphas = np.asarray(alphas)
+    return np.mean(f_values[None, :] < (1.0 - alphas)[:, None], axis=1)
+
+
 def run_tarp_from_samples(
-    posterior_samples, true_thetas,
-    prior_low, prior_high,
-    n_alpha=31, rng=None,
+    posterior_samples, true_thetas, prior_low, prior_high,
+    n_alpha=31, rng=None, theta_ref=None,
 ):
     """
-    Compute the TARP empirical coverage curve from posterior samples.
+    Full TARP from posterior samples. Same signature/returns as before
+    (``alphas, ecp, f_values``), plus an optional ``theta_ref`` so that
+    several methods can share the same reference points.
+    """
+    prior_low, prior_high = np.asarray(prior_low), np.asarray(prior_high)
+    if theta_ref is None:
+        theta_ref = sample_reference_points(
+            rng, prior_low, prior_high, len(posterior_samples)
+        )
+    f_values = tarp_f_values(
+        posterior_samples, true_thetas, theta_ref, prior_low, prior_high
+    )
+    alphas = np.linspace(0.0, 1.0, n_alpha)
+    return alphas, ecp_from_f(f_values, alphas), f_values
 
-    Parameters
-    ----------
-    posterior_samples : array (Nsims, n_posterior_samples, ndim)
-        Posterior samples for each simulation.
-    true_thetas : array (Nsims, ndim)
-        True parameter values, in the same parameter order.
-    prior_low, prior_high : array (ndim,)
-        Prior bounds.
-    n_alpha : int
-        Number of credibility levels.
-    rng : numpy.random.Generator, optional
-        Random number generator.
+
+def tarp_ks_pvalue(f_values):
+    """
+    KS test of the f-values against U(0,1). This is the quantity that is
+    uniform for a calibrated posterior; the ECP curve is just a transform
+    of it, so testing the f-values directly is cleaner than testing the
+    ECP values.
+    """
+    from scipy.stats import kstest
+    return kstest(np.asarray(f_values), "uniform").pvalue
+
+
+def samples_to_mean_cov(posterior_samples):
+    """
+    (N, S, ndim) samples -> (mu_list, cov_list), the same objects that
+    ``fit_cosmologix_datasets`` returns. Lets the pull plot / any Gaussian
+    diagnostic run unchanged on the NN posteriors.
+    """
+    s = np.asarray(posterior_samples)
+    mu = s.mean(axis=1)
+    c = s - mu[:, None, :]
+    cov = np.einsum("nsi,nsj->nij", c, c) / (s.shape[1] - 1)
+    return mu, cov
+
+
+# =====================================================================
+# 3. Samplers -- the only method-specific part
+# =====================================================================
+# cosmologix: keep fit_cosmologix_datasets and sample_from_gaussians as is.
+
+def make_log_post(models, xi, norm_priors, visible_indices,
+                  group_indices, group_names_list):
+    def log_post(theta):
+        return nninf.log_prob_fn_groups(
+            theta, models, xi, norm_priors,
+            visible_indices, group_indices, group_names_list,
+        )
+    return log_post
+
+
+def sample_nn_posteriors(
+    models_per_group, x_list, theta_init_list, norm_priors, param_names,
+    visible_indices, group_indices, group_names_list, param_stats,
+    n_warmup, n_samples, rng_key,
+):
+    """
+    MCMC-sample the NN posterior for every observation.
 
     Returns
     -------
-    alphas, ecp, f_values
+    posteriors : (N, n_samples, ndim) array in PHYSICAL units
+    rng_key    : updated key
+
+    ``theta_init_list`` (normalized, (N, ndim)) is only the chain starting
+    point. No TARP logic in here.
     """
-    rng = rng or np.random.default_rng()
-    Nsims = len(posterior_samples)
-
-    f_values = np.zeros(Nsims)
-    width = prior_high - prior_low
-
-    for i in range(Nsims):
-        theta_ij = posterior_samples[i]
-
-        # --- true parameter vector for this simulation ---
-        theta_true = true_thetas[i]
-
-        # --- reference point, drawn from the prior, independent of x_i ---
-        theta_r = rng.uniform(prior_low, prior_high)
-
-        # --- standardized Euclidean distance ---
-        d_ij = np.linalg.norm(
-            (theta_ij - theta_r) / width, axis=1
+    def scan_step(rng_key, xi_theta):
+        xi, theta_init = xi_theta
+        rng_key, subkey = jax.random.split(rng_key)
+        log_post = make_log_post(
+            models_per_group, xi, norm_priors,
+            visible_indices, group_indices, group_names_list,
         )
-        d_true = np.linalg.norm(
-            (theta_true - theta_r) / width
+        _, post = nninf.sample_posterior(
+            log_post, n_warmup, n_samples, theta_init, subkey
         )
+        return rng_key, post
 
-        f_values[i] = np.mean(d_ij < d_true)
+    rng_key, post_norm = jax.lax.scan(scan_step, rng_key, (x_list, theta_init_list))
+    return unnormalize(post_norm, param_names, param_stats), rng_key
 
-    # --- ECP curve over credibility levels alpha ---
-    alphas = np.linspace(0.0, 1.0, n_alpha)
-    ecp = np.array([
-        np.mean(f_values < (1 - a))
-        for a in alphas
-    ])
 
-    return alphas, ecp, f_values
+def compute_ecp_tarp_groups(
+    models_per_group, x_list, theta_star_list, alpha_list, priors, param_names,
+    visible_indices, group_indices, group_names_list, param_stats,
+    n_warmup, n_samples, rng_key, rng=None, theta_ref=None,
+):
+    """
+    Backward-compatible wrapper: NN sampler + shared TARP.
+
+    ``priors`` and ``theta_star_list`` are in NORMALIZED space, as before.
+    Returns (ecp_vals, f_vals, posteriors, rng_key); ``posteriors`` and the
+    TARP are in physical units.
+    """
+    posteriors, rng_key = sample_nn_posteriors(
+        models_per_group, x_list, theta_star_list, priors, param_names,
+        visible_indices, group_indices, group_names_list, param_stats,
+        n_warmup, n_samples, rng_key,
+    )
+    low_n, high_n = prior_bounds(priors, param_names)
+    low = unnormalize(low_n, param_names, param_stats)
+    high = unnormalize(high_n, param_names, param_stats)
+    true_thetas = unnormalize(np.asarray(theta_star_list), param_names, param_stats)
+
+    alphas = np.asarray(alpha_list)
+    if theta_ref is None:
+        theta_ref = sample_reference_points(rng, low, high, len(posteriors))
+    f_vals = tarp_f_values(posteriors, true_thetas, theta_ref, low, high)
+    return ecp_from_f(f_vals, alphas), f_vals, posteriors, rng_key
