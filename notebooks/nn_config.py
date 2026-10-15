@@ -3,9 +3,6 @@ import jax.numpy as jnp  # Numpy for JAX
 from flax import nnx
 
 # SIMPLEST
-
-
-        
 class Phi(nnx.Module):
     def __init__(
         self,

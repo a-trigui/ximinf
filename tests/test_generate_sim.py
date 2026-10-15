@@ -1,12 +1,27 @@
 import numpy as np
+import pandas as pd
 import pytest
 
 from ximinf.generate_sim import (
     get_stretch_mode_simple,
     scan_params,
-    # evolving_rate,
+    simulate_one
 )
 
+def _model(**extra_kwargs):
+    return {"magabs": {"kwargs": dict(extra_kwargs)}}
+
+def test_simulate_one_output_formats(draw, defaults):
+    out = simulate_one({}, 0.3, 50, defaults, _model(), cols=["magobs", "nope"])
+    assert set(out) == {"magobs"}                     # unknown columns ignored
+    assert isinstance(out["magobs"], np.ndarray)
+
+    assert set(simulate_one({}, 0.3, 50, defaults, _model())) == {"magobs", "z", "x1"}
+
+    df = simulate_one({}, 0.3, 50, defaults, _model(), cols=["z"], out_df=True)
+    assert list(df.columns) == ["z"]
+    assert isinstance(simulate_one({}, 0.3, 50, defaults, _model(), out_df=True),
+                      pd.DataFrame)
 
 def test_get_stretch_mode_simple():
     x1 = np.array([1.5, -0.5, 0.0])

@@ -572,6 +572,13 @@ def plot_corner_comparison(
         set.intersection(*[set(posterior_dicts[m]) for m in methods_to_plot])
     )
     assert common_names, "The selected methods share no common parameters."
+
+    param_limits = {
+        name: param_limits[name]
+        for name in common_names
+        if param_limits and name in param_limits
+    }
+
     param_labels = param_labels or {}
     labels_common = [
         param_labels.get(n, n.replace("_", r"\_"))   # fallback: escaped raw name
@@ -807,3 +814,45 @@ def plot_posterior_traces(
         plt.show()
 
     return fig, axes[:n_params]
+
+def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10):
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+
+    colours = [BLUE, BLUE, BLUE]
+
+    for idx, ax in enumerate(axes):
+        bias = mu_list[:, idx] - mu_nn[:, idx]
+
+        if cov is not None:
+            bias = bias / np.sqrt(cov[:, idx, idx])
+            mean, std = 0, 1
+        else:
+            mean, std = np.mean(bias), np.std(bias)
+
+        ax.hist(
+            bias,
+            density=True,
+            bins=bins,
+            color=colours[idx],
+            alpha=0.8,
+        )
+
+        if cov is not None:
+            x = np.linspace(-3, 3, 100)
+        else:
+            x = np.linspace(2*bias.min(), 2*bias.max(), 100)
+
+        ax.plot(
+            x,
+            stats.norm.pdf(x, loc=mean, scale=std),
+            color=RED,
+            lw=2,
+        )
+
+        label = param_labels.get(names[idx], names[idx])
+        ax.set_title(rf"${label}$")
+        ax.set_xlabel(rf"${label}$")
+        ax.set_ylabel("Density")
+
+    plt.tight_layout()
+    plt.show()

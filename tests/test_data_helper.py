@@ -1,20 +1,139 @@
-import numpy as np
+import sys
+
+import h5py
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
+from ximinf.cosmo_helper import get_canonical
 from ximinf.data_helper import (
-    normalize,
-    unnormalize,
-    _as_result_list,
+    group_names_as_lists,
+    format_groups,
+    normalize_array,
+    unnormalize_array,
+    normalize_priors,
+    get_next_simulation_index,
+    save_simulation,
+    load_simulation,
+    save_hdf5,
+    load_hdf5,
+    load_module_from_run,
     filter_and_pad,
     remove_cosmology,
     normalize_data,
     build_data_concat,
+    _as_result_list,
+    normalize,
+    unnormalize,
     build_inputs_infer,
-    save_hdf5,
-    load_hdf5,
 )
-from ximinf.cosmo_helper import get_canonical
+
+STATS = {"a": {"mu": 1.0, "sigma": 2.0}, "b": {"mu": -1.0, "sigma": 0.5}}
+
+# ---------------------------------------------------------------- groups
+def test_group_names_as_lists():
+    out = group_names_as_lists(["H0", ("Om", "w0"), ["a"]])
+    assert out == [["H0"], ["Om", "w0"], ["a"]]
+
+
+def test_format_groups():
+    assert format_groups(["H0", ["Om", "w0"], ("a", "b")]) == "H0+Om-w0+a-b"
+
+
+# ---------------------------------------------------- array normalisation
+def test_normalize_unnormalize_array_roundtrip_and_order():
+    theta = np.array([[3.0, 0.0], [1.0, -1.0]])
+    normed = normalize_array(theta, ["a", "b"], STATS)
+    np.testing.assert_allclose(normed, [[1.0, 2.0], [0.0, 0.0]])
+    np.testing.assert_allclose(unnormalize_array(normed, ["a", "b"], STATS), theta)
+
+    # order of `names` must follow the trailing axis
+    swapped = normalize_array(theta[:, ::-1], ["b", "a"], STATS)
+    np.testing.assert_allclose(swapped, normed[:, ::-1])
+
+
+def test_normalize_priors():
+    priors = {"a": {"range": (0.0, 4.0), "type": "uniform"}}
+    out = normalize_priors(priors, STATS)
+    np.testing.assert_allclose(out["a"]["range"], [-0.5, 1.5])
+    assert out["a"]["type"] == "uniform"
+    assert priors["a"]["range"] == (0.0, 4.0)  # input untouched
+
+
+# ------------------------------------------------------------- file I/O
+def test_next_simulation_index(tmp_path):
+    assert get_next_simulation_index(tmp_path / "missing") == 1
+    for n in ("sim_0001", "sim_0002", "sim_0004", "sim_abc"):
+        (tmp_path / n).mkdir()
+    (tmp_path / "sim_0003").touch()  # a file, not a directory -> ignored
+    assert get_next_simulation_index(tmp_path) == 3
+    assert get_next_simulation_index(tmp_path, prefix="other") == 1
+
+
+def test_save_load_simulation_roundtrip(tmp_path):
+    params = {"H0": np.array([70.0, 71.0])}
+    data = {"magobs": np.array([[18.0, 19.0], [20.0, 21.0]])}
+    priors = {"H0": {"range": (60.0, 80.0), "type": "uniform"}}
+    cfg = tmp_path / "cfg.py"
+    cfg.write_text("X = 1\n")
+    folder = tmp_path / "run" / "nested"
+
+    path = save_simulation(folder, "simulation.h5", params, data,
+                           priors=priors, sim_config_path=cfg)
+    assert path.exists()
+    assert (folder / "cfg.py").exists()
+
+    # default file_name of load_simulation is "simulation.h5"
+    p, d, pr = load_simulation(folder)
+    assert p["H0"].dtype == np.float32
+    np.testing.assert_allclose(d["magobs"], data["magobs"])
+    np.testing.assert_allclose(pr["H0"]["range"], [60.0, 80.0])
+    assert str(pr["H0"]["type"]) == "uniform"
+
+
+def test_save_simulation_without_priors(tmp_path):
+    save_simulation(tmp_path, "s.h5", {"a": np.zeros(2)}, {"x": np.zeros((2, 2))})
+    _, _, priors = load_simulation(tmp_path, "s.h5")
+    assert priors is None
+
+
+def test_load_simulation_missing_file(tmp_path):
+    with pytest.raises((FileNotFoundError, OSError)):
+        load_simulation(tmp_path, "nope.h5")
+
+
+def test_save_hdf5_returns_path_and_load_is_float32_jax(tmp_path):
+    f = tmp_path / "a.h5"
+    out = save_hdf5(f, {"H0": np.array([70.0])}, {"x": np.ones((1, 2))})
+    assert out == f
+    params, data = load_hdf5(f)
+    assert isinstance(params["H0"], jax.Array)
+    assert params["H0"].dtype == jnp.float32
+    assert data["x"].dtype == jnp.float32
+
+
+def test_load_hdf5_scalar_dataset(tmp_path):
+    f = tmp_path / "scalar.h5"
+    with h5py.File(f, "w") as h:
+        h["params/s"] = 3.0
+        h["data/x"] = np.arange(3)
+    params, data = load_hdf5(f)
+    assert params["s"].shape == ()
+    assert params["s"].dtype == jnp.float32
+    assert data["x"].dtype == jnp.float32
+
+
+def test_load_module_from_run(tmp_path):
+    run = tmp_path / "run_a"
+    run.mkdir()
+    (run / "cfg.py").write_text("VALUE = 42\n")
+    mod = load_module_from_run(run, "cfg.py")
+    assert mod.VALUE == 42
+    assert "cfg_run_a" not in sys.modules  # not registered globally
+
+    with pytest.raises(FileNotFoundError):
+        load_module_from_run(run, "missing.py")
 
 
 def test_normalize_and_unnormalize():
