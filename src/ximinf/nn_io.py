@@ -1,4 +1,3 @@
-import os
 import pickle
 from flax import nnx
 
@@ -39,18 +38,20 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     None
         The model states and configuration are written to disk.
     """
-    ckpt_dir = os.path.abspath(path)
-    ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
+    ckpt_dir = Path(path).resolve()
+    if ckpt_dir.exists():
+        shutil.rmtree(ckpt_dir)
+    ckpt_dir.mkdir(parents=True)
 
     checkpointer = ocp.StandardCheckpointer()
 
-    for g, model in enumerate(models_per_group):
-        # Split model into graph-independent state
-        _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
-        checkpointer.save(ckpt_dir / f"state_group_{g}", state)
-
-    # checkpointer.wait_until_finished()
-    checkpointer.close()
+    try:
+        for g, model in enumerate(models_per_group):
+            _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
+            checkpointer.save(ckpt_dir / f"state_group_{g}", state)
+        checkpointer.wait_until_finished()   # all writes committed
+    finally:
+        checkpointer.close()                 # runs even if a save raised
 
     # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:
@@ -105,33 +106,32 @@ def load_autoregressive_nn(path, model_cls):
 
     checkpointer = ocp.StandardCheckpointer()
     models_per_group = []
+    try:
+        for gconf in group_configs:
+            n_params_visible = gconf["n_params_visible"]
+            abstract_model = model_cls(
+                phi_drop_rate=shared["phi_dropout_rate"],
+                rho_drop_rate=shared["rho_dropout_rate"],
+                Nsize_p=shared["Nsize_p"],
+                Nsize_r=shared["Nsize_r"],
+                depth_r=shared["depth_r"],
+                depth_p=shared["depth_p"],
+                n_cols=len(shared["columns"]),
+                n_params=n_params_visible,
+                rngs=nnx.Rngs(0),
+            )
+            graphdef, rngkey, rngcount, abstract_state = nnx.split(
+                abstract_model, nnx.RngKey, nnx.RngCount, ...
+            )
+            state = checkpointer.restore(
+                ckpt_dir / f"state_group_{gconf['group_id']}",
+                target=abstract_state,
+            )
+            models_per_group.append(nnx.merge(graphdef, rngkey, rngcount, state))
+    finally:
+        checkpointer.close()
 
-    for gconf in group_configs:
-        n_params_visible = gconf["n_params_visible"]
-
-        abstract_model = model_cls(
-            phi_drop_rate=shared["phi_dropout_rate"],
-            rho_drop_rate=shared["rho_dropout_rate"],
-            Nsize_p=shared["Nsize_p"],
-            Nsize_r=shared["Nsize_r"],
-            depth_r=shared["depth_r"],
-            depth_p=shared["depth_p"],
-            n_cols=len(shared["columns"]),
-            n_params=n_params_visible,
-            rngs=nnx.Rngs(0),
-        )
-        
-        graphdef, rngkey, rngcount, abstract_state = nnx.split(
-            abstract_model, nnx.RngKey, nnx.RngCount, ...
-        )
-        
-        state = checkpointer.restore(
-            ckpt_dir / f"state_group_{gconf['group_id']}",
-            target=abstract_state,
-        )
-
-        model = nnx.merge(graphdef, rngkey, rngcount, state)
-        models_per_group.append(model)
+    return models_per_group, model_config
 
     return models_per_group, model_config
 
