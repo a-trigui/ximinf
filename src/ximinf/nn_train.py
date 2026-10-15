@@ -84,27 +84,23 @@ def setup_jax_device():
     return device, backend, cpu, gpu
 
 @nnx.jit
-def loss_fn(model, batch, pos_weight):
+def loss_fn(model, batch):
     x_batch, labels = batch
     logits = model(x_batch)
-    bce = optax.sigmoid_binary_cross_entropy(logits, labels)
-    w = jnp.where(labels > 0.5, pos_weight, 1.0)
-    loss = (w * bce).sum() / w.sum()
+    loss = optax.sigmoid_binary_cross_entropy(logits, labels).mean()
     return loss, logits
 
 @nnx.jit
-def accuracy_fn(model, batch, pos_weight):
+def accuracy_fn(model, batch):
     x_batch, labels = batch
     logits = model(x_batch)
     preds = jax.nn.sigmoid(logits) > 0.5
-    comp = labels > 0.5
-    w = jnp.where(comp, pos_weight, 1.0)
-    return (w * (preds == comp)).sum() / w.sum()
+    return (preds == (labels > 0.5)).mean()
 
 @nnx.jit
-def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch, pos_weight):
+def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch):
     grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
-    (loss, logits), grads = grad_fn(model, batch, pos_weight)
+    (loss, logits), grads = grad_fn(model, batch)
     optimizer.update(grads)
 
 @nnx.jit
@@ -142,11 +138,7 @@ def default_cfg():
         val_frac=0.15, test_frac=0.15,
         min_delta=1e-4, min_acc_for_stopping=0.7,
         plot=True, plot_step=1, swa_k=10,
-        n_neg=5,          # K negatives per positive
-        balance=True,     # weight positives by K so classes count equally
     )
-def get_pos_weight(cfg):
-    return float(cfg["n_neg"]) if cfg["balance"] else 1.0
 
 
 
@@ -205,56 +197,53 @@ def make_base_inputs(split, key=None):
     return jnp.concatenate([data, split["mask"], split["m_norm"]], axis=-1)
 
 
-def make_resampler(split, group_idx, device, K):
+def make_resampler(split, group_idx, device):
     def resample(key):
-        key_noise, key_neg = jax.random.split(key)
+        key_noise, key_xy = jax.random.split(key)
         base = make_base_inputs(split, key_noise)          # fresh noise every epoch
-        return make_group_xy(split, base, group_idx, key_neg, device, K)
+        return make_group_xy(split, base, group_idx, key_xy, device)
     return resample
 
 
-def make_group_xy(split, base, group_idx, key, device, K):
+def make_group_xy(split, base, group_idx, key, device):
     """
-    Returns N positives followed by K*N negatives (N*(1+K) rows).
-    Negative k (k=1..K) replaces the current group's params of sample i with those
-    of sample p[(pos(i)+k) % N] for one random ordering p, so each sample gets K
-    distinct donors, none of which is itself.
+    Randomly splits the N samples into two halves.
+    Half A keeps its true params (label 1).
+    Half B has the current group's params replaced by those of another sample (label 0).
+    Returns N rows in total (n // 2 positives, the rest negatives).
     """
     cur, vis = group_idx
     n = base.shape[0]
-    assert 1 <= K < n, "need 1 <= K < N so that donors are distinct and never self"
+    assert n > 1, "need at least 2 samples so that donors are never self"
+    key_split, key_donor = jax.random.split(key)
 
-    p = jax.random.permutation(key, n)
-    idx = jnp.arange(n)
+    # random positive/negative assignment
+    perm = jax.random.permutation(key_split, n)
+    is_pos = jnp.zeros(n, dtype=bool).at[perm[: n // 2]].set(True)
 
-    def donor_map(k):
-        # src[p[i]] = p[(i + k) % n]
-        return jnp.zeros(n, dtype=int).at[p].set(p[(idx + k) % n])
-
-    src = jax.vmap(donor_map)(jnp.arange(1, K + 1)).reshape(-1)   # (K*n,), k-major
+    # donor for each sample: a random cyclic shift, so no sample is its own donor
+    p = jax.random.permutation(key_donor, n)
+    src = jnp.zeros(n, dtype=int).at[p].set(jnp.roll(p, -1))   # src[p[i]] = p[(i+1) % n]
 
     true_p = split["true_params"]
-    neg_params = jnp.tile(true_p, (K, 1)).at[:, cur].set(true_p[src][:, cur])
+    swapped = true_p.at[:, cur].set(true_p[src][:, cur])
+    params = jnp.where(is_pos[:, None], true_p, swapped)
 
-    params = jnp.concatenate([true_p, neg_params], axis=0)         # (n*(1+K), P)
-    base_all = jnp.concatenate([base, jnp.tile(base, (K, 1))], axis=0)
-
-    x = jnp.concatenate([base_all, params[:, vis]], axis=-1)
-    y = jnp.concatenate([jnp.ones(n, dtype=jnp.int32),
-                         jnp.zeros(K * n, dtype=jnp.int32)])[:, None]
+    x = jnp.concatenate([base, params[:, vis]], axis=-1)
+    y = is_pos.astype(jnp.int32)[:, None]
     return jax.device_put(x, device), jax.device_put(y, device)
 
 
 
-def make_group_data(dataset, group_idx, key, device, K):
+def make_group_data(dataset, group_idx, key, device):
     k_val, k_test = jax.random.split(key)
     fixed = {}
     for name, k in [("val", k_val), ("test", k_test)]:
         base = make_base_inputs(dataset[name])
-        fixed[name] = make_group_xy(dataset[name], base, group_idx, k, device, K)
+        fixed[name] = make_group_xy(dataset[name], base, group_idx, k, device)
 
     return {
-        "resample_train": make_resampler(dataset["train"], group_idx, device, K),
+        "resample_train": make_resampler(dataset["train"], group_idx, device),
         "val": fixed["val"],
         "test": fixed["test"],
     }
@@ -279,23 +268,23 @@ def make_optimizer(model, cfg):
 # ===============================================================
 # 6. Training loop helpers
 # ===============================================================
-def run_epoch(model, x, y, batch_size, gpu, pos_weight, optimizer=None):
-    total_loss, total_acc, total_w = 0.0, 0.0, 0.0
+def run_epoch(model, x, y, batch_size, gpu, optimizer=None):
+    total_loss, total_acc, total_n = 0.0, 0.0, 0
     for i in range(0, len(x), batch_size):
         bx = jax.device_put(x[i:i + batch_size], gpu)
         by = jax.device_put(y[i:i + batch_size], gpu)
 
-        loss, _ = loss_fn(model, (bx, by), pos_weight)
-        acc = accuracy_fn(model, (bx, by), pos_weight)
-        bw = jnp.where(by > 0.5, pos_weight, 1.0).sum()   # batch weight
-        total_loss += loss * bw
-        total_acc += acc * bw
-        total_w += bw
+        loss, _ = loss_fn(model, (bx, by))
+        acc = accuracy_fn(model, (bx, by))
+        n = len(bx)
+        total_loss += loss * n
+        total_acc += acc * n
+        total_n += n
 
         if optimizer is not None:
-            train_step(model, optimizer, (bx, by), pos_weight)
+            train_step(model, optimizer, (bx, by))
 
-    return total_loss / total_w, total_acc / total_w
+    return total_loss / total_n, total_acc / total_n
 
 
 def plot_history(history, epoch, M, N, patience, group_id, group_params):
@@ -354,19 +343,17 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
     snapshots = deque(maxlen=cfg.get("swa_k", 10))
 
     for epoch in range(cfg["epochs"]):
-        key, resample_key, perm_key = jax.random.split(key, 3)
+        key, resample_key = jax.random.split(key)
 
-        # fresh labels + shuffle
+        # fresh labels (random pos/neg split, donors, noise); rows are already
+        # randomly ordered with respect to the labels, so no extra shuffle needed
         train_x, train_y = resample_fn(resample_key)
-        perm = jax.random.permutation(perm_key, train_x.shape[0])
-        train_x, train_y = train_x[perm], train_y[perm]
 
-        pos_weight = get_pos_weight(cfg)
         model.train()
-        tr_loss, tr_acc = run_epoch(model, train_x, train_y, cfg["batch_size"], gpu, pos_weight, optimizer)
+        tr_loss, tr_acc = run_epoch(model, train_x, train_y, cfg["batch_size"], gpu, optimizer)
 
         model.eval()
-        va_loss, va_acc = run_epoch(model, val_x, val_y, cfg["batch_size"], gpu, pos_weight)
+        va_loss, va_acc = run_epoch(model, val_x, val_y, cfg["batch_size"], gpu)
 
         # snapshot the raw weights at the end of every epoch
         snapshots.append(jax.tree.map(jnp.copy, nnx.state(model, nnx.Param)))
@@ -411,7 +398,7 @@ def train_all_groups(models, param_groups, dataset, key, cfg, ctx):
         print(f"\n=== Training model for group {g}: {group} ===")
 
         key, data_key = jax.random.split(key)
-        data = make_group_data(dataset, gidx, data_key, ctx["cpu"], cfg["n_neg"])
+        data = make_group_data(dataset, gidx, data_key, ctx["cpu"])
         
         n_train = int(ctx["N"] * (1 - cfg["val_frac"] - cfg["test_frac"]))
         
