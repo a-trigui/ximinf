@@ -6,13 +6,33 @@ import ximinf.data_helper as dh
 import numpy as np
 
 def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
-    """Prints the test accuracy of each group and returns them as a list of floats."""
+    """
+    Evaluate and print classification accuracy on test sets across all groups.
+
+    Parameters
+    ----------
+    models : list of nnx.Module
+        Trained neural network models for each parameter group.
+    test_sets : list of tuple
+        List of ``(x, y)`` feature and label pairs for each group.
+    param_groups : list
+        List of parameter groups defining the model structure.
+    cfg : dict
+        Configuration dictionary containing ``"batch_size"``.
+    gpu : jax.Device
+        Device on which evaluation is performed.
+
+    Returns
+    -------
+    list of float
+        Test accuracy achieved for each parameter group.
+    """
     accuracies = []
     print("Test accuracy per group")
     print("-" * 40)
     for g, (model, (x, y), group) in enumerate(zip(models, test_sets, param_groups)):
         model.eval()
-        _, acc = nntr.run_epoch(model, x, y, cfg["batch_size"], gpu, pos_weight=1)
+        _, acc = nntr.run_epoch(model, x, y, cfg["batch_size"], gpu)
         acc = float(acc)
         accuracies.append(acc)
         name = dh.format_groups([group])
@@ -44,13 +64,6 @@ def autocorr_fft(x, max_lag):
     jax.Array
         Normalized autocorrelation function for the non-negative lags
         ``0, ..., max_lag - 1``. The value at lag zero is equal to one.
-
-    Notes
-    -----
-    The estimator is biased and energy-normalized. The input is centered
-    before computing the autocorrelation, and the sequence is zero-padded
-    to twice its original length before applying the FFT in order to avoid
-    circular convolution effects.
     """
 
     n = x.shape[0]
@@ -80,7 +93,14 @@ def autocorr_fft(x, max_lag):
 # 1. Helpers
 # ---------------------------------------------------------------
 def set_eval(models):
-    """Disable dropout etc. on every group model."""
+    """
+    Set all group neural network models to evaluation mode.
+
+    Parameters
+    ----------
+    models : list of nnx.Module
+        Collection of neural network models to place in evaluation mode.
+    """
     for m in models:
         m.eval()
 
@@ -89,13 +109,28 @@ def set_eval(models):
 # ---------------------------------------------------------------
 def select_true_test_samples(test_sets, n_params, n_max=100):
     """
-    Uses the last group's test set, where all parameters are visible.
-    x columns are [data, mask, m_norm, params], so the last n_params columns
-    are theta and everything before them is the base input.
+    Extract true positive samples and separate features from parameters.
 
-    Returns:
-        theta_star : (n, n_params) parameters of the true samples
-        xy_test    : (n, F) inputs without theta (data + mask + m_norm)
+    Uses the final group's test set where all parameters are visible as the
+    last ``n_params`` columns of the input tensor.
+
+    Parameters
+    ----------
+    test_sets : list of tuple
+        List of ``(x, y)`` feature and label pairs for each group.
+    n_params : int
+        Number of parameters positioned at the end of the input features.
+    n_max : int, optional
+        Maximum number of positive samples to select. Default is 100.
+
+    Returns
+    -------
+    theta_star : jax.Array
+        True parameter values for the selected samples with shape
+        ``(n_selected, n_params)``.
+    xy_test : jax.Array
+        Observation features excluding parameters with shape
+        ``(n_selected, F)``.
     """
     x_last, y_last = test_sets[-1]
 
@@ -122,13 +157,27 @@ def fit_cosmologix_datasets(
 
     Parameters
     ----------
+    list_of_dfs : list of pandas.DataFrame
+        Simulated supernova observation datasets to fit.
+    fitter : object
+        Fitter instance providing a ``fit`` method.
+    fiducial_cosmo : dict
+        Fixed fiducial cosmology dictionary passed to the fitter.
+    param_names : list of str
+        Complete ordered list of all model parameter names.
+    params_of_interest : list of str
+        Subset of parameter names to extract from the fit results.
     build_likelihood : callable
-        Function taking a DataFrame and returning a likelihood object.
+        Function taking a dataset DataFrame and returning a likelihood object.
 
     Returns
     -------
-    mu_list  : array (Nsims, ndim_interest)
-    cov_list : array (Nsims, ndim_interest, ndim_interest)
+    mu_list : numpy.ndarray
+        Posterior means for the parameters of interest with shape
+        ``(Nsims, ndim_interest)``.
+    cov_list : numpy.ndarray
+        Posterior covariance matrices for the parameters of interest with
+        shape ``(Nsims, ndim_interest, ndim_interest)``.
     """
     indices = [param_names.index(p) for p in params_of_interest]
     Nsims = len(list_of_dfs)
@@ -188,14 +237,45 @@ def sample_from_gaussians(mu_list, cov_list, n_posterior_samples=2000, rng=None)
 # 1. Parameter bookkeeping (used identically by both pipelines)
 # =====================================================================
 def prior_bounds(priors, names):
-    """(low, high) arrays, ordered like ``names``, from ``priors[n]['range']``."""
+    """
+    Extract lower and upper prior bounds for an ordered sequence of parameters.
+
+    Parameters
+    ----------
+    priors : dict
+        Dictionary mapping parameter names to prior specifications containing
+        a ``"range"`` key.
+    names : sequence of str
+        Sequence of parameter names defining the order of the output bounds.
+
+    Returns
+    -------
+    low : numpy.ndarray
+        1D array of lower prior bounds.
+    high : numpy.ndarray
+        1D array of upper prior bounds.
+    """
     low = np.array([float(priors[n]["range"][0]) for n in names])
     high = np.array([float(priors[n]["range"][1]) for n in names])
     return low, high
 
 
 def stack_thetas(params, names):
-    """dict of per-sim arrays -> (N_sims, ndim) array ordered like ``names``."""
+    """
+    Stack per-simulation parameter arrays into a 2D parameter matrix.
+
+    Parameters
+    ----------
+    params : dict
+        Dictionary mapping parameter names to 1D arrays of sampled values.
+    names : sequence of str
+        Sequence of parameter names defining the column order.
+
+    Returns
+    -------
+    numpy.ndarray
+        2D array of shape ``(N_sims, len(names))`` containing stacked parameter values.
+    """
     return np.column_stack([np.asarray(params[n]) for n in names])
 
 # =====================================================================
@@ -203,11 +283,23 @@ def stack_thetas(params, names):
 # =====================================================================
 def sample_reference_points(rng, prior_low, prior_high, n):
     """
-    Draw ``n`` TARP reference points uniformly in the prior box.
+    Draw TARP reference points uniformly distributed within the prior box.
 
-    ``rng`` can be a seed or a ``numpy.random.Generator``. Re-using the same
-    reference points for several methods gives a paired comparison: the
-    difference between the ECP curves then comes from the posteriors only.
+    Parameters
+    ----------
+    rng : int, numpy.random.Generator, or None
+        Random number generator or seed.
+    prior_low : array-like
+        Lower bounds for each parameter dimension.
+    prior_high : array-like
+        Upper bounds for each parameter dimension.
+    n : int
+        Number of reference points to sample.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(n, len(prior_low))`` containing the sampled reference points.
     """
     rng = np.random.default_rng(rng)
     return rng.uniform(prior_low, prior_high, size=(n, len(prior_low)))
@@ -215,12 +307,30 @@ def sample_reference_points(rng, prior_low, prior_high, n):
 
 def tarp_f_values(posterior_samples, true_thetas, theta_ref, prior_low, prior_high):
     """
-    TARP statistic f_i = fraction of posterior samples closer to the
-    reference point than the truth. Distances are measured in units of the
-    prior width, so no parameter dominates and the metric does not depend
-    on how the parameters happen to be normalized.
+    Compute TARP statistic values across simulated datasets.
 
-    posterior_samples : (N, S, ndim); true_thetas, theta_ref : (N, ndim)
+    Calculates the fraction of posterior samples closer to the reference point
+    than the true parameter value, normalizing parameter distances by the
+    prior range width.
+
+    Parameters
+    ----------
+    posterior_samples : array-like
+        Posterior samples with shape ``(N, S, ndim)`` for ``N`` simulations
+        and ``S`` samples per simulation.
+    true_thetas : array-like
+        True parameter values with shape ``(N, ndim)``.
+    theta_ref : array-like
+        Reference points with shape ``(N, ndim)``.
+    prior_low : array-like
+        Lower bounds of parameter priors.
+    prior_high : array-like
+        Upper bounds of parameter priors.
+
+    Returns
+    -------
+    numpy.ndarray
+        1D array of length ``N`` containing the TARP statistic for each simulation.
     """
     width = np.asarray(prior_high) - np.asarray(prior_low)
     post = np.asarray(posterior_samples)
@@ -230,7 +340,21 @@ def tarp_f_values(posterior_samples, true_thetas, theta_ref, prior_low, prior_hi
 
 
 def ecp_from_f(f_values, alphas):
-    """Empirical coverage: ECP(alpha) = mean(f < 1 - alpha)."""
+    """
+    Compute Empirical Coverage Probability (ECP) curve from TARP f-values.
+
+    Parameters
+    ----------
+    f_values : array-like
+        1D array of TARP test statistic values.
+    alphas : array-like
+        Nominal credibility levels at which to evaluate coverage.
+
+    Returns
+    -------
+    numpy.ndarray
+        Empirical coverage probabilities corresponding to each level in ``alphas``.
+    """
     f_values = np.asarray(f_values)
     alphas = np.asarray(alphas)
     return np.mean(f_values[None, :] < (1.0 - alphas)[:, None], axis=1)
@@ -241,9 +365,34 @@ def run_tarp_from_samples(
     n_alpha=31, rng=None, theta_ref=None,
 ):
     """
-    Full TARP from posterior samples. Same signature/returns as before
-    (``alphas, ecp, f_values``), plus an optional ``theta_ref`` so that
-    several methods can share the same reference points.
+    Run full TARP coverage evaluation from posterior sample distributions.
+
+    Parameters
+    ----------
+    posterior_samples : array-like
+        Posterior samples with shape ``(N, S, ndim)``.
+    true_thetas : array-like
+        True parameters with shape ``(N, ndim)``.
+    prior_low : array-like
+        Lower bounds of parameter priors.
+    prior_high : array-like
+        Upper bounds of parameter priors.
+    n_alpha : int, optional
+        Number of credibility grid points between 0 and 1. Default is 31.
+    rng : int, numpy.random.Generator, or None, optional
+        Random generator used if ``theta_ref`` is not provided.
+    theta_ref : array-like, optional
+        Precomputed reference points with shape ``(N, ndim)``. If ``None``,
+        points are sampled uniformly in the prior box.
+
+    Returns
+    -------
+    alphas : numpy.ndarray
+        Credibility levels grid from 0 to 1.
+    ecp : numpy.ndarray
+        Empirical coverage probabilities evaluated at ``alphas``.
+    f_values : numpy.ndarray
+        TARP statistic values for each simulation.
     """
     prior_low, prior_high = np.asarray(prior_low), np.asarray(prior_high)
     if theta_ref is None:
@@ -259,10 +408,17 @@ def run_tarp_from_samples(
 
 def tarp_ks_pvalue(f_values):
     """
-    KS test of the f-values against U(0,1). This is the quantity that is
-    uniform for a calibrated posterior; the ECP curve is just a transform
-    of it, so testing the f-values directly is cleaner than testing the
-    ECP values.
+    Compute Kolmogorov-Smirnov test p-value comparing TARP f-values against U(0, 1).
+
+    Parameters
+    ----------
+    f_values : array-like
+        1D array of TARP test statistic values across simulations.
+
+    Returns
+    -------
+    float
+        p-value of the two-sided Kolmogorov-Smirnov test.
     """
     from scipy.stats import kstest
     return kstest(np.asarray(f_values), "uniform").pvalue
@@ -270,9 +426,20 @@ def tarp_ks_pvalue(f_values):
 
 def samples_to_mean_cov(posterior_samples):
     """
-    (N, S, ndim) samples -> (mu_list, cov_list), the same objects that
-    ``fit_cosmologix_datasets`` returns. Lets the pull plot / any Gaussian
-    diagnostic run unchanged on the NN posteriors.
+    Compute posterior mean vectors and covariance matrices from MCMC samples.
+
+    Parameters
+    ----------
+    posterior_samples : array-like
+        Posterior samples of shape ``(N, S, ndim)`` for ``N`` simulations
+        and ``S`` samples per simulation.
+
+    Returns
+    -------
+    mu : numpy.ndarray
+        Sample mean vectors with shape ``(N, ndim)``.
+    cov : numpy.ndarray
+        Sample covariance matrices with shape ``(N, ndim, ndim)``.
     """
     s = np.asarray(posterior_samples)
     mu = s.mean(axis=1)
@@ -288,6 +455,30 @@ def samples_to_mean_cov(posterior_samples):
 
 def make_log_post(models, xi, norm_priors, visible_indices,
                   group_indices, group_names_list):
+    """
+    Construct a closure that computes the joint autoregressive log-posterior.
+
+    Parameters
+    ----------
+    models : sequence of callable
+        Neural network models for each parameter group.
+    xi : jax.Array
+        Observation features tensor.
+    norm_priors : dict
+        Prior specifications for normalized parameters.
+    visible_indices : sequence of array-like
+        Visible parameter indices per group.
+    group_indices : sequence of array-like
+        Target parameter indices per group.
+    group_names_list : sequence of list
+        Parameter names per group.
+
+    Returns
+    -------
+    callable
+        Function taking parameter vector ``theta`` and returning the scalar
+        log-probability.
+    """
     def log_post(theta):
         return nninf.log_prob_fn_groups(
             theta, models, xi, norm_priors,
@@ -302,15 +493,47 @@ def sample_nn_posteriors(
     n_warmup, n_samples, rng_key,
 ):
     """
-    MCMC-sample the NN posterior for every observation.
+    Draw MCMC posterior samples using the neural likelihood ratio estimators.
+
+    Samples the joint posterior for each observation using NUTS window adaptation
+    and unnormalizes the resulting chains back to physical parameter units.
+
+    Parameters
+    ----------
+    models_per_group : sequence of callable
+        Neural network models for each autoregressive group.
+    x_list : jax.Array
+        Batch of observation features of shape ``(N, F)``.
+    theta_init_list : jax.Array
+        Normalized initial parameter positions for each chain of shape
+        ``(N, ndim)``.
+    norm_priors : dict
+        Prior specifications for normalized parameters.
+    param_names : list of str
+        Global ordered parameter names.
+    visible_indices : sequence of array-like
+        Visible parameter indices for each group.
+    group_indices : sequence of array-like
+        Target parameter indices for each group.
+    group_names_list : sequence of list
+        Names of parameters in each group.
+    param_stats : dict
+        Mean and standard deviation normalization statistics for each
+        parameter.
+    n_warmup : int
+        Number of warmup iterations for NUTS adaptation.
+    n_samples : int
+        Number of posterior samples to draw after warmup.
+    rng_key : jax.Array
+        JAX PRNG key.
 
     Returns
     -------
-    posteriors : (N, n_samples, ndim) array in PHYSICAL units
-    rng_key    : updated key
-
-    ``theta_init_list`` (normalized, (N, ndim)) is only the chain starting
-    point. No TARP logic in here.
+    posteriors : jax.Array
+        Unnormalized posterior samples in physical parameter units with shape
+        ``(N, n_samples, ndim)``.
+    rng_key : jax.Array
+        Updated JAX PRNG key.
     """
     def scan_step(rng_key, xi_theta):
         xi, theta_init = xi_theta

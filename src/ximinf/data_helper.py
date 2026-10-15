@@ -93,36 +93,128 @@ def unnormalize(normed_params, param_stats):
     return unnormed
 
 def group_names_as_lists(param_groups):
-    """['a', ['b', 'c']] -> [['a'], ['b', 'c']]"""
+    """
+    Standardize parameter group specifications into lists of strings.
+
+    Parameters
+    ----------
+    param_groups : list
+        List of parameter groups, where each entry is either a single parameter
+        name or an iterable of parameter names.
+
+    Returns
+    -------
+    list of list of str
+        List of parameter groups, each formatted as a list of parameter names.
+    """
     return [[g] if isinstance(g, str) else list(g) for g in param_groups]
 
 
 def format_groups(groups):
-    """['mabs', 'beta', 'alpha'] -> 'mabs-beta-alpha'; nested groups joined with '+'."""
+    """
+    Format parameter groups into a delimited string identifier.
+
+    Parameters
+    ----------
+    groups : list
+        Parameter groups to format. Intra-group parameters are concatenated
+        with ``"-"`` and separate groups are delimited with ``"+"``.
+
+    Returns
+    -------
+    str
+        Formatted string representation of the parameter grouping.
+    """
     return "+".join(
         "-".join(g) if isinstance(g, (list, tuple)) else str(g) for g in groups
     )
 
 
 def _stats(names, param_stats):
+    """
+    Extract mean and standard deviation arrays for specified parameters.
+
+    Parameters
+    ----------
+    names : sequence of str
+        Ordered sequence of parameter names.
+    param_stats : dict
+        Dictionary mapping parameter names to dicts containing ``"mu"`` and
+        ``"sigma"``.
+
+    Returns
+    -------
+    mu : numpy.ndarray
+        Array of parameter means.
+    sigma : numpy.ndarray
+        Array of parameter standard deviations.
+    """
     mu = np.array([param_stats[n]["mu"] for n in names])
     sigma = np.array([param_stats[n]["sigma"] for n in names])
     return mu, sigma
 
 
 def normalize_array(theta, names, param_stats):
-    """physical -> normalized. Works on any (..., ndim) numpy or jax array."""
+    """
+    Transform parameter values from physical to normalized z-score units.
+
+    Parameters
+    ----------
+    theta : numpy.ndarray or jax.Array
+        Array of shape ``(..., ndim)`` holding physical parameter values.
+    names : sequence of str
+        Ordered parameter names corresponding to the trailing dimension of ``theta``.
+    param_stats : dict
+        Dictionary containing ``"mu"`` and ``"sigma"`` for each parameter.
+
+    Returns
+    -------
+    numpy.ndarray or jax.Array
+        Standardized parameter values with zero mean and unit variance.
+    """
     mu, sigma = _stats(names, param_stats)
     return (theta - mu) / sigma
 
 
 def unnormalize_array(theta, names, param_stats):
-    """normalized -> physical. Works on any (..., ndim) numpy or jax array."""
+    """
+    Transform normalized parameter values back to their physical units.
+
+    Parameters
+    ----------
+    theta : numpy.ndarray or jax.Array
+        Array of shape ``(..., ndim)`` holding normalized parameter values.
+    names : sequence of str
+        Ordered parameter names corresponding to the trailing dimension of ``theta``.
+    param_stats : dict
+        Dictionary containing ``"mu"`` and ``"sigma"`` for each parameter.
+
+    Returns
+    -------
+    numpy.ndarray or jax.Array
+        Parameter values restored to physical scale.
+    """
     mu, sigma = _stats(names, param_stats)
     return theta * sigma + mu
 
 
 def normalize_priors(priors, param_stats):
+    """
+    Normalize prior boundaries according to parameter standardization statistics.
+
+    Parameters
+    ----------
+    priors : dict
+        Dictionary mapping parameter names to prior definitions containing
+        ``"range"`` and ``"type"``.
+    param_stats : dict
+        Dictionary containing ``"mu"`` and ``"sigma"`` for each parameter.
+
+    Returns
+    -------
+    dict
+        Prior specifications with standardized range intervals.
+    """
     out = {}
     for name, prior in priors.items():
         mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
@@ -322,7 +414,20 @@ def load_simulation(sim_dir, file_name="simulation.h5"):
 def save_hdf5(file_path, params, data):
     """
     Save parameter and data dictionaries to an HDF5 file.
-    Delegates to :func:`save_simulation`.
+
+    Parameters
+    ----------
+    file_path : pathlib.Path or str
+        Destination path of the HDF5 file to create.
+    params : dict
+        Dictionary mapping parameter names to numerical arrays.
+    data : dict
+        Dictionary mapping data column names to numerical arrays.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the written HDF5 file.
     """
     file_path = Path(file_path)
     return save_simulation(file_path.parent, file_path.name, params, data)
@@ -391,7 +496,26 @@ def load_hdf5(file_path):
         return params, data
     
 def load_module_from_run(run_dir, module_filename=None):
-    """Import a .py file as a module object, without touching sys.modules globally."""
+    """
+    Import a Python file as a module object without registering it globally.
+
+    Parameters
+    ----------
+    run_dir : pathlib.Path or str
+        Directory containing the module file.
+    module_filename : str, optional
+        Filename of the Python module to import (e.g. ``"sim_config.py"``).
+
+    Returns
+    -------
+    types.ModuleType
+        Dynamically imported Python module object.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``module_filename`` does not exist in ``run_dir``.
+    """
     run_dir = Path(run_dir)          # <-- ensure it's a Path
     module_path = run_dir / module_filename
     if not module_path.exists():

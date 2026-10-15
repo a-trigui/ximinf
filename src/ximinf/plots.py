@@ -30,6 +30,11 @@ param_labels = {
 }
 
 def apply_default_settings():
+    """
+    Apply default Matplotlib rcParams styling settings for plotting.
+
+    Updates font sizes, label sizes, tick parameters, and legend fonts.
+    """
     plt.rcParams.update({
     "font.size": 12,          # General font size
     "axes.labelsize": 14,     # x/y axis labels
@@ -48,6 +53,39 @@ def plot_HD(
     images_dir=None,
     n_bins=15,
 ):
+    """
+    Plot a Hubble diagram and binned Hubble residuals for simulated supernovae.
+
+    Parameters
+    ----------
+    example : dict
+        Simulation data dictionary containing at least ``"z"``, ``"magobs"``,
+        and ``"c"``.
+    params : dict
+        Cosmological and standardization parameters containing ``"mabs"``,
+        ``"alpha"``, and ``"beta"``.
+    default_params : dict
+        Default parameter dictionary containing baseline survey cut values.
+    N_total : int
+        Total number of simulated supernovae prior to selection cuts.
+    survey_name : str, optional
+        Name of the survey (e.g. ``"ZTF"``) to display selection cut curves.
+        If ``None``, no survey selection function is overlaid.
+    images_dir : str or pathlib.Path, optional
+        Directory in which to save the generated figure. If ``None``, the plot
+        is displayed but not saved.
+    n_bins : int, optional
+        Number of quantile redshift bins used for calculating binned residuals.
+        Default is 15.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Created figure object.
+    axes : tuple of matplotlib.axes.Axes
+        Tuple of ``(ax1, ax2)`` corresponding to the Hubble diagram and residual
+        axes.
+    """
     # ============================================
     # Simulation parameters
     # ============================================
@@ -379,6 +417,21 @@ def plot_HD(
 
 
 def plot_residuals(data_filt, params, global_param_names, mask):
+    """
+    Plot observed magnitude against redshift, color, and stretch with scatter maps.
+
+    Parameters
+    ----------
+    data_filt : dict
+        Filtered observation dictionary containing ``"z"``, ``"magobs"``,
+        ``"c"``, and ``"x1"``.
+    params : dict
+        Dictionary mapping parameter names to numerical values.
+    global_param_names : sequence of str
+        Parameter names to display in the figure super-title.
+    mask : array-like of bool
+        Boolean mask of selected supernovae used to print the sample count.
+    """
     cmap2 = LinearSegmentedColormap.from_list(
         'custom_green_beige_purple',
         [GREEN, BEIGE, PURPLE]
@@ -569,6 +622,29 @@ def plot_corner_comparison(
     return g
 
 def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
+    """
+    Plot the Empirical Coverage Probability (ECP) curve against credibility.
+
+    Parameters
+    ----------
+    alphas : array-like
+        Credibility levels evaluated for the test.
+    ecp : array-like
+        Empirical coverage probabilities corresponding to ``alphas``.
+    sim_path : str or pathlib.Path, optional
+        Simulation directory path under which the plot will be saved to
+        ``{sim_path}/Images/{file_name}.png``. If ``None``, the figure is not
+        saved to disk.
+    file_name : str, optional
+        Filename without extension for the exported image. Default is ``"tarp"``.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure containing the ECP curve.
+    ax : matplotlib.axes.Axes
+        Axes containing the plotted credibility vs coverage curve.
+    """
     fig, ax = plt.subplots(figsize=(8, 6))
 
     ax.plot(1 - alphas, ecp, 'o:', ms=6, c=RED, alpha=0.6, label='ECP')  #, yerr=se , label='ECP ± SE'
@@ -589,6 +665,27 @@ def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
     return fig, ax
 
 def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path, file_name="systematics"):
+    """
+    Plot standardized pull histograms against standard normal distributions.
+
+    Parameters
+    ----------
+    mu_list : numpy.ndarray
+        Posterior means of shape ``(Nsims, ndim)``.
+    true_thetas : numpy.ndarray
+        True parameter values of shape ``(Nsims, ndim)``.
+    cov_list : numpy.ndarray
+        Posterior covariance matrices of shape ``(Nsims, ndim, ndim)``.
+    global_param_names : sequence of str
+        List of parameter names for each dimension.
+    param_labels : dict, optional
+        Dictionary mapping parameter names to LaTeX label strings.
+    sim_path : str or pathlib.Path
+        Directory path where the figure is saved under
+        ``{sim_path}/Images/{file_name}.png``.
+    file_name : str, optional
+        Output filename without extension. Default is ``"systematics"``.
+    """
     figs, axes = plt.subplots(1, len(global_param_names), figsize=[len(global_param_names)*4, 3])
     axes = np.atleast_1d(axes)
     diag_cov = np.diagonal(cov_list, axis1=1, axis2=2)

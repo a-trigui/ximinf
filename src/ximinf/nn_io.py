@@ -16,6 +16,11 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     """
     Save an autoregressive stack of NNX models and its configuration.
 
+    Each model is split with ``nnx.split`` so that its graph-independent state
+    can be checkpointed independently of the model graph definition. The state
+    of group ``g`` is stored as ``state_group_g``. The model configuration is
+    stored in ``config.pkl`` using Python ``pickle`` serialization.
+
     Parameters
     ----------
     models_per_group : list of nnx.Module
@@ -33,16 +38,6 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     -------
     None
         The model states and configuration are written to disk.
-
-    Notes
-    -----
-    Each model is split with ``nnx.split`` so that its graph-independent
-    state can be checkpointed independently of the model graph definition.
-    The state of group ``g`` is stored as ``state_group_g``.
-
-    The model configuration is stored in ``config.pkl`` using Python
-    ``pickle`` serialization. The ``nn_config.py`` file is also copied into
-    the checkpoint directory for reference.
     """
     ckpt_dir = os.path.abspath(path)
     ckpt_dir = ocp.test_utils.erase_and_create_empty(ckpt_dir)
@@ -64,6 +59,12 @@ def save_autoregressive_nn(models_per_group, path, model_config):
 def load_autoregressive_nn(path, model_cls):
     """
     Load an autoregressive stack of NNX models from a checkpoint directory.
+
+    For each group, an abstract model is instantiated from the stored
+    architecture configuration. Its graph definition and RNG state are extracted
+    with ``nnx.split`` and used to define the target checkpoint structure. The
+    saved parameter state is restored with the Orbax ``StandardCheckpointer``
+    and merged back with the graph definition using ``nnx.merge``.
 
     Parameters
     ----------
@@ -87,18 +88,6 @@ def load_autoregressive_nn(path, model_cls):
     ValueError
         If the checkpoint directory does not exist or if ``config.pkl`` is
         missing.
-
-    Notes
-    -----
-    For each group, an abstract model is first instantiated from the stored
-    architecture configuration. Its graph definition and RNG state are
-    extracted with ``nnx.split`` and used to define the target checkpoint
-    structure. The saved parameter state is then restored with the
-    Orbax ``StandardCheckpointer`` and merged back with the graph definition
-    using ``nnx.merge``.
-
-    The number of visible parameters for each group is read from
-    ``group_configs`` in the saved configuration.
     """
     ckpt_dir = Path(path).resolve()
     if not ckpt_dir.exists():
@@ -151,9 +140,31 @@ def load_autoregressive_nn(path, model_cls):
 
 def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
     """
-    cfg  : training config (batch_size, lr, patience are read from it)
-    ctx  : dict with N and M
-    arch : dict(phi_dropout, rho_dropout, width_phi, width_rho, depth_phi, depth_rho)
+    Construct a standardized identifier string for a neural network training run.
+
+    Parameters
+    ----------
+    cfg : dict
+        Training configuration containing ``"batch_size"``, ``"lr"``,
+        ``"wd"``, and ``"patience"``.
+    ctx : dict
+        Training context containing sample counts ``"N"`` and ``"M"``.
+    param_groups : list
+        List of parameter groups defining the model structure.
+    arch : dict
+        Architecture specification containing ``"phi_dropout"``,
+        ``"rho_dropout"``, ``"width_phi"``, ``"width_rho"``,
+        ``"depth_phi"``, and ``"depth_rho"``.
+    n_realisations : int
+        Number of noise or simulation realizations per parameter point.
+    sim_idx : int or str
+        Index or identifier of the underlying simulation dataset.
+
+    Returns
+    -------
+    str
+        Formatted run name string incorporating training, architecture,
+        and simulation metadata.
     """
     return (
         f"NN_M_N_{ctx['N']}_{n_realisations}_M_{ctx['M']}"
@@ -167,7 +178,31 @@ def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
 
 
 def save_run(models, model_config, run_name, sim_path, base_dir="../data/NNs"):
-    """Save the networks and copy the config files next to them. Returns the path."""
+    """
+    Save trained model checkpoints and archive associated configuration files.
+
+    Serializes the autoregressive model state and configuration, then copies
+    ``nn_config.py`` and ``sim_config.py`` to the run checkpoint directory.
+
+    Parameters
+    ----------
+    models : list of nnx.Module
+        List of trained NNX model instances across parameter groups.
+    model_config : dict
+        Complete model architecture and training configuration dictionary.
+    run_name : str
+        Name of the run directory to create under ``base_dir``.
+    sim_path : str or pathlib.Path
+        Directory containing the simulation configuration file ``sim_config.py``.
+    base_dir : str or pathlib.Path, optional
+        Base directory in which run folders are stored. Default is
+        ``"../data/NNs"``.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the created run directory.
+    """
     nn_path = Path(base_dir) / run_name
     save_autoregressive_nn(models, nn_path, model_config)
     shutil.copy("nn_config.py", nn_path / "nn_config.py")

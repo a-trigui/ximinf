@@ -16,6 +16,13 @@ import ximinf.nn_inference as nninf
 import optax  # Optimisers for JAX
 
 def print_jax_memory():
+    """
+    Print the number, total size, and top live JAX memory allocations.
+
+    Inspects all currently live JAX arrays and prints summary statistics
+    including total count, aggregate gigabytes, and detailed shapes and
+    data types for the 15 largest arrays.
+    """
     arrs = jax.live_arrays()
     print(f"{len(arrs)} live arrays")
     print(f"Total: {sum(a.nbytes for a in arrs) / 1e9:.3f} GB")
@@ -47,12 +54,6 @@ def setup_jax_device():
     gpu : jax.Device or None
         First detected accelerator device, or ``None`` if no accelerator
         backend is available.
-
-    Notes
-    -----
-    GPU memory usage is printed when a CUDA device is selected. The selected
-    device is registered using ``jax.default_device`` before querying the
-    default backend.
     """
     # Try GPU backends in priority order
     gpu = None
@@ -85,6 +86,24 @@ def setup_jax_device():
 
 @nnx.jit
 def loss_fn(model, batch):
+    """
+    Compute sigmoid binary cross-entropy loss and logits for a batch.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Neural network model mapping input features to raw logits.
+    batch : tuple of jax.Array
+        Tuple ``(x_batch, labels)`` containing feature inputs and binary
+        targets.
+
+    Returns
+    -------
+    loss : jax.Array
+        Scalar mean binary cross-entropy loss.
+    logits : jax.Array
+        Model prediction logits for the batch.
+    """
     x_batch, labels = batch
     logits = model(x_batch)
     loss = optax.sigmoid_binary_cross_entropy(logits, labels).mean()
@@ -92,6 +111,22 @@ def loss_fn(model, batch):
 
 @nnx.jit
 def accuracy_fn(model, batch):
+    """
+    Compute classification accuracy for a batch.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Neural network model mapping input features to raw logits.
+    batch : tuple of jax.Array
+        Tuple ``(x_batch, labels)`` containing feature inputs and binary
+        targets.
+
+    Returns
+    -------
+    accuracy : jax.Array
+        Fraction of correctly classified instances in the batch.
+    """
     x_batch, labels = batch
     logits = model(x_batch)
     preds = jax.nn.sigmoid(logits) > 0.5
@@ -99,6 +134,19 @@ def accuracy_fn(model, batch):
 
 @nnx.jit
 def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch):
+    """
+    Perform a single optimization step using model gradients.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Flax NNX model to optimize.
+    optimizer : nnx.Optimizer
+        Flax NNX optimizer instance managing model parameters.
+    batch : tuple of jax.Array
+        Tuple ``(x_batch, labels)`` containing feature inputs and binary
+        targets.
+    """
     grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
     (loss, logits), grads = grad_fn(model, batch)
     optimizer.update(grads)
@@ -118,11 +166,7 @@ def pred_step(model, x_batch):
     Returns
     -------
     logits : jax.Array
-        Raw model logits for the input batch.
-
-    Notes
-    -----
-    The returned values are logits and are not passed through a sigmoid.
+        Raw model logits for the input batch (pre-sigmoid).
     """
   
     logits = model(x_batch)
@@ -132,6 +176,16 @@ def pred_step(model, x_batch):
 # Config
 # ===============================================================
 def default_cfg():
+    """
+    Return the default hyperparameter configuration for neural network training.
+
+    Returns
+    -------
+    dict
+        Default configuration dictionary containing optimizer parameters,
+        batch size, learning rate schedule, early stopping thresholds,
+        and dataset split ratios.
+    """
     return dict(
         epochs=500, patience=10, lr=1e-4, batch_size=500,
         wd=1e-3, b1=0.9, decay_steps=1000, decay_rate=0.9,
@@ -146,7 +200,27 @@ def default_cfg():
 # 2. Train / val / test split  ->  {"train": {...}, "val": {...}, "test": {...}}
 # ===============================================================
 def split_dataset(arrays, key, cfg):
-    """arrays: dict with data, mask, m_norm, true_params."""
+    """
+    Split dataset arrays randomly into train, validation, and test subsets.
+
+    Parameters
+    ----------
+    arrays : dict of jax.Array
+        Dictionary mapping array names (such as ``"data"``, ``"mask"``,
+        ``"m_norm"``, ``"true_params"``) to tensors with matching leading
+        dimension.
+    key : jax.Array
+        JAX PRNG key used to randomly permute sample indices.
+    cfg : dict
+        Configuration dictionary containing split proportions ``"val_frac"``
+        and ``"test_frac"``.
+
+    Returns
+    -------
+    dict of dict
+        Nested dictionary with keys ``"train"``, ``"val"``, and ``"test"``,
+        each holding the corresponding partition of the input arrays.
+    """
     N = arrays["data"].shape[0]
     perm = jax.random.permutation(key, N)
     n_test = int(cfg["test_frac"] * N)
@@ -168,7 +242,21 @@ def split_dataset(arrays, key, cfg):
 # 3. Group indices
 # ===============================================================
 def build_group_indices(param_groups, param_names):
-    """List of (current_idx, visible_idx), one per group."""
+    """
+    Build parameter index pairs for autoregressive inference groups.
+
+    Parameters
+    ----------
+    param_groups : list
+        List of parameter groups defining the autoregressive ordering.
+    param_names : list of str
+        Global ordered list of parameter names.
+
+    Returns
+    -------
+    list of tuple of (jax.Array, jax.Array)
+        List of ``(current_idx, visible_idx)`` index pairs for each group.
+    """
     visible_indices, group_indices = nninf.preprocess_groups(param_groups, param_names)
     return list(zip(group_indices, visible_indices))
 
@@ -176,11 +264,47 @@ def build_group_indices(param_groups, param_names):
 # 4. Inputs / labels for one group
 # ===============================================================
 def add_noise(data, scale, key):
+    """
+    Add zero-mean Gaussian noise scaled by standard deviation to data.
+
+    Parameters
+    ----------
+    data : jax.Array
+        Input data array.
+    scale : float or jax.Array
+        Standard deviation of the Gaussian noise.
+    key : jax.Array
+        JAX PRNG key.
+
+    Returns
+    -------
+    jax.Array
+        Data perturbed by additive Gaussian noise.
+    """
     return data + scale * jax.random.normal(key, data.shape, data.dtype)
 
 
 def freeze_noise(dataset, key, names=("val", "test")):
-    """One fixed noisy realisation for val/test, shared by all groups."""
+    """
+    Apply a single fixed noise realization to validation and test splits.
+
+    Parameters
+    ----------
+    dataset : dict of dict
+        Dataset containing split dictionaries with ``"data"`` and
+        ``"noise_scale"`` entries.
+    key : jax.Array
+        JAX PRNG key.
+    names : tuple of str, optional
+        Names of splits on which to apply fixed noise. Default is
+        ``("val", "test")``.
+
+    Returns
+    -------
+    dict of dict
+        Dataset with perturbed ``"data"`` arrays and removed
+        ``"noise_scale"`` entries in the specified splits.
+    """
     for name in names:
         key, k = jax.random.split(key)
         s = dataset[name]
@@ -190,7 +314,23 @@ def freeze_noise(dataset, key, names=("val", "test")):
 
 
 def make_base_inputs(split, key=None):
-    """[data (noisy if key given), mask, m_norm]."""
+    """
+    Concatenate observational data, object validity mask, and normalized count.
+
+    Parameters
+    ----------
+    split : dict
+        Dataset split dictionary containing ``"data"``, ``"mask"``,
+        ``"m_norm"``, and optionally ``"noise_scale"``.
+    key : jax.Array, optional
+        JAX PRNG key. When supplied, noise is freshly drawn and added to the
+        data.
+
+    Returns
+    -------
+    jax.Array
+        Concatenated base feature tensor along the last dimension.
+    """
     data = split["data"]
     if key is not None:
         data = add_noise(data, split["noise_scale"], key)
@@ -198,6 +338,24 @@ def make_base_inputs(split, key=None):
 
 
 def make_resampler(split, group_idx, device):
+    """
+    Create a resampling function that generates fresh noisy batches and labels.
+
+    Parameters
+    ----------
+    split : dict
+        Dataset split dictionary containing base features and true parameters.
+    group_idx : tuple of (jax.Array, jax.Array)
+        Tuple of ``(current_idx, visible_idx)`` parameter index arrays.
+    device : jax.Device
+        JAX device onto which generated batches are moved.
+
+    Returns
+    -------
+    callable
+        Function taking a JAX PRNG key and returning a new ``(x, y)`` batch
+        on ``device``.
+    """
     def resample(key):
         key_noise, key_xy = jax.random.split(key)
         base = make_base_inputs(split, key_noise)          # fresh noise every epoch
@@ -207,10 +365,33 @@ def make_resampler(split, group_idx, device):
 
 def make_group_xy(split, base, group_idx, key, device):
     """
-    Randomly splits the N samples into two halves.
-    Half A keeps its true params (label 1).
-    Half B has the current group's params replaced by those of another sample (label 0).
-    Returns N rows in total (n // 2 positives, the rest negatives).
+    Generate inputs and binary classification labels for ratio estimation.
+
+    Randomly partitions samples into positive instances (holding true
+    parameters, label 1) and negative instances (whose current group parameters
+    are swapped with donor samples, label 0).
+
+    Parameters
+    ----------
+    split : dict
+        Dataset split dictionary containing ``"true_params"``.
+    base : jax.Array
+        Base feature tensor for all samples.
+    group_idx : tuple of (jax.Array, jax.Array)
+        Tuple ``(cur, vis)`` of current parameter indices and all visible
+        parameter indices up to this group.
+    key : jax.Array
+        JAX PRNG key.
+    device : jax.Device
+        Target JAX device for placing output tensors.
+
+    Returns
+    -------
+    x : jax.Array
+        Concatenated feature tensor containing base features and visible
+        parameters.
+    y : jax.Array
+        Binary target tensor of shape ``(N, 1)``.
     """
     cur, vis = group_idx
     n = base.shape[0]
@@ -236,6 +417,27 @@ def make_group_xy(split, base, group_idx, key, device):
 
 
 def make_group_data(dataset, group_idx, key, device):
+    """
+    Construct training resampler and fixed validation/test datasets for a group.
+
+    Parameters
+    ----------
+    dataset : dict of dict
+        Full dataset dictionary containing ``"train"``, ``"val"``, and
+        ``"test"`` splits.
+    group_idx : tuple of (jax.Array, jax.Array)
+        Tuple of ``(current_idx, visible_idx)`` for the current group.
+    key : jax.Array
+        JAX PRNG key.
+    device : jax.Device
+        Target JAX device for tensor placement.
+
+    Returns
+    -------
+    dict
+        Dictionary containing ``"resample_train"`` callable alongside fixed
+        validation and test pairs ``"val"`` and ``"test"``.
+    """
     k_val, k_test = jax.random.split(key)
     fixed = {}
     for name, k in [("val", k_val), ("test", k_test)]:
@@ -253,6 +455,22 @@ def make_group_data(dataset, group_idx, key, device):
 # 5. Optimiser
 # ===============================================================
 def make_optimizer(model, cfg):
+    """
+    Instantiate an AdamW optimizer with exponential learning rate decay.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Neural network model whose parameters will be optimized.
+    cfg : dict
+        Configuration dictionary containing ``"lr"``, ``"decay_steps"``,
+        ``"decay_rate"``, ``"b1"``, and ``"wd"``.
+
+    Returns
+    -------
+    nnx.Optimizer
+        Configured Flax NNX optimizer.
+    """
     schedule = optax.exponential_decay(
         init_value=cfg["lr"],
         transition_steps=cfg["decay_steps"],
@@ -269,6 +487,32 @@ def make_optimizer(model, cfg):
 # 6. Training loop helpers
 # ===============================================================
 def run_epoch(model, x, y, batch_size, gpu, optimizer=None):
+    """
+    Execute one training or evaluation epoch over mini-batches.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Neural network model.
+    x : jax.Array
+        Input features tensor.
+    y : jax.Array
+        Target labels tensor.
+    batch_size : int
+        Mini-batch size.
+    gpu : jax.Device
+        Target JAX device for computation.
+    optimizer : nnx.Optimizer, optional
+        Flax NNX optimizer. If provided, gradient updates are performed;
+        if ``None``, only loss and accuracy are evaluated.
+
+    Returns
+    -------
+    mean_loss : float
+        Mean binary cross-entropy loss over all batches.
+    mean_acc : float
+        Mean classification accuracy over all batches.
+    """
     total_loss, total_acc, total_n = 0.0, 0.0, 0
     for i in range(0, len(x), batch_size):
         bx = jax.device_put(x[i:i + batch_size], gpu)
@@ -288,6 +532,26 @@ def run_epoch(model, x, y, batch_size, gpu, optimizer=None):
 
 
 def plot_history(history, epoch, M, N, patience, group_id, group_params):
+    """
+    Display dynamic plots of training and validation loss and accuracy.
+
+    Parameters
+    ----------
+    history : dict of list
+        Dictionary recording loss and accuracy trajectories per epoch.
+    epoch : int
+        Current epoch index (0-indexed).
+    M : int
+        Number of objects per simulation.
+    N : int
+        Number of training simulations.
+    patience : int
+        Early stopping patience in epochs.
+    group_id : int
+        Index of the active parameter group.
+    group_params : list or str
+        Parameter names in the active group.
+    """
     clear_output(wait=True)
     print(f"=== Training model for group {group_id}: {group_params} ===")
 
@@ -310,7 +574,32 @@ def plot_history(history, epoch, M, N, patience, group_id, group_params):
 
 
 def should_stop(val_loss, val_acc, best_val_loss, strikes, cfg):
-    """Returns (stop, new_best_val_loss, new_strikes)."""
+    """
+    Evaluate early stopping criteria based on validation metrics.
+
+    Parameters
+    ----------
+    val_loss : float
+        Current epoch validation loss.
+    val_acc : float
+        Current epoch validation accuracy.
+    best_val_loss : float
+        Lowest validation loss observed across earlier epochs.
+    strikes : int
+        Number of consecutive epochs without sufficient loss improvement.
+    cfg : dict
+        Configuration containing ``"min_delta"``,
+        ``"min_acc_for_stopping"``, and ``"patience"``.
+
+    Returns
+    -------
+    stop : bool
+        Whether early stopping conditions are met.
+    new_best_val_loss : float
+        Updated minimum validation loss.
+    new_strikes : int
+        Updated count of consecutive non-improving epochs.
+    """
     if np.isinf(best_val_loss):
         improved = True                       # first epoch is never a strike
     else:
@@ -321,7 +610,19 @@ def should_stop(val_loss, val_acc, best_val_loss, strikes, cfg):
     return stop, min(best_val_loss, val_loss), strikes
 
 def average_states(states):
-    """Uniform mean of a list of nnx.State pytrees."""
+    """
+    Compute the uniform element-wise mean across NNX parameter state pytrees.
+
+    Parameters
+    ----------
+    states : list of nnx.State
+        Sequence of model parameter states collected across epochs.
+
+    Returns
+    -------
+    nnx.State
+        Averaged parameter state pytree.
+    """
     return jax.tree.map(lambda *xs: jnp.mean(jnp.stack(xs), axis=0), *states)
 
 
@@ -330,10 +631,41 @@ def average_states(states):
 # ===============================================================
 def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
     """
-    resample_fn : key -> (train_x, train_y), called at the start of every epoch.
-    val_xy      : fixed (val_x, val_y).
-    plot_info   : dict(M, N, group_id, group_params), only used for plotting.
-    Returns (model, metrics_history, key).
+    Train a single parameter group model over multiple epochs.
+
+    Performs dynamic batch resampling, tracks loss and accuracy metrics,
+    applies stochastic weight averaging (SWA) over the final checkpoints,
+    and terminates upon early stopping or reaching maximum epochs.
+
+    Parameters
+    ----------
+    model : nnx.Module
+        Neural network model to train.
+    optimizer : nnx.Optimizer
+        Flax NNX optimizer.
+    resample_fn : callable
+        Function taking a JAX PRNG key and returning fresh ``(train_x, train_y)``
+        batches for each epoch.
+    val_xy : tuple of (jax.Array, jax.Array)
+        Fixed validation features and labels ``(val_x, val_y)``.
+    key : jax.Array
+        JAX PRNG key.
+    cfg : dict
+        Training configuration dictionary.
+    gpu : jax.Device
+        Target computation device.
+    plot_info : dict
+        Dictionary containing ``M``, ``N``, ``group_id``, and
+        ``group_params`` used for logging and real-time visualization.
+
+    Returns
+    -------
+    model : nnx.Module
+        Trained model with averaged weights updated and set to evaluation mode.
+    history : dict of list
+        Dictionary recording loss and accuracy trajectories over epochs.
+    key : jax.Array
+        Updated JAX PRNG key.
     """
     val_x, val_y = val_xy
     history = {"train_loss": [], "train_accuracy": [],
@@ -388,8 +720,37 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
 # ===============================================================
 def train_all_groups(models, param_groups, dataset, key, cfg, ctx):
     """
-    Builds each group's data lazily (lower peak memory) and trains it.
-    Returns (models, histories, test_sets, key).
+    Train an autoregressive sequence of models across all parameter groups.
+
+    Generates data lazily for each group to minimize peak memory, trains each
+    model using :func:`train_loop`, and aggregates metrics and test sets.
+
+    Parameters
+    ----------
+    models : list of nnx.Module
+        List of neural network models, one for each parameter group.
+    param_groups : list
+        List of parameter group definitions specifying the autoregressive order.
+    dataset : dict of dict
+        Full dataset containing train, validation, and test partitions.
+    key : jax.Array
+        JAX PRNG key.
+    cfg : dict
+        Training configuration dictionary.
+    ctx : dict
+        Context dictionary containing ``"param_names"``, ``"cpu"``,
+        ``"gpu"``, ``"M"``, and ``"N"``.
+
+    Returns
+    -------
+    models : list of nnx.Module
+        Trained neural network models.
+    histories : list of dict
+        Training and validation histories for each parameter group.
+    test_sets : list of tuple
+        Test feature and label pairs ``(x, y)`` for each group.
+    key : jax.Array
+        Updated JAX PRNG key.
     """
     group_indices = build_group_indices(param_groups, ctx["param_names"])
     histories, test_sets = [], []
