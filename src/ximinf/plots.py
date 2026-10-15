@@ -671,7 +671,7 @@ def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
     
     return fig, ax
 
-def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path, file_name="systematics"):
+def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path=None, file_name="systematics"):
     """
     Plot standardized pull histograms against standard normal distributions.
 
@@ -723,7 +723,8 @@ def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels,
 
     handles, labels = axes[0].get_legend_handles_labels()
     figs.legend(handles, labels)
-    figs.savefig(f"{sim_path}/Images/{file_name}.png")
+    if sim_path is not None:
+        figs.savefig(f"{sim_path}/Images/{file_name}.png")
 
     plt.tight_layout()
     plt.show()
@@ -815,10 +816,8 @@ def plot_posterior_traces(
 
     return fig, axes[:n_params]
 
-def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10):
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-    colours = [BLUE, BLUE, BLUE]
+def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10, sim_path=None, file_name="histogram"):
+    figs, axes = plt.subplots(1, 3, figsize=(12, 4))
 
     for idx, ax in enumerate(axes):
         bias = mu_list[:, idx] - mu_nn[:, idx]
@@ -826,14 +825,16 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10)
         if cov is not None:
             bias = bias / np.sqrt(cov[:, idx, idx])
             mean, std = 0, 1
+            x_label = "Pull"
         else:
             mean, std = np.mean(bias), np.std(bias)
+            x_label = "Bias"
 
         ax.hist(
             bias,
             density=True,
             bins=bins,
-            color=colours[idx],
+            color=BLUE,
             alpha=0.8,
         )
 
@@ -851,8 +852,14 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10)
 
         label = param_labels.get(names[idx], names[idx])
         ax.set_title(rf"${label}$")
-        ax.set_xlabel(rf"${label}$")
+        ax.set_xlabel(x_label)
         ax.set_ylabel("Density")
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    figs.legend(handles, labels)
+    
+    if sim_path is not None:
+        figs.savefig(f"{sim_path}/Images/{file_name}.png")
 
     plt.tight_layout()
     plt.show()
