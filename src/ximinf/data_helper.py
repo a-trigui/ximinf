@@ -97,22 +97,40 @@ def group_names_as_lists(param_groups):
     return [[g] if isinstance(g, str) else list(g) for g in param_groups]
 
 
+def format_groups(groups):
+    """['mabs', 'beta', 'alpha'] -> 'mabs-beta-alpha'; nested groups joined with '+'."""
+    return "+".join(
+        "-".join(g) if isinstance(g, (list, tuple)) else str(g) for g in groups
+    )
+
+
+def _stats(names, param_stats):
+    mu = np.array([param_stats[n]["mu"] for n in names])
+    sigma = np.array([param_stats[n]["sigma"] for n in names])
+    return mu, sigma
+
+
+def normalize_array(theta, names, param_stats):
+    """physical -> normalized. Works on any (..., ndim) numpy or jax array."""
+    mu, sigma = _stats(names, param_stats)
+    return (theta - mu) / sigma
+
+
+def unnormalize_array(theta, names, param_stats):
+    """normalized -> physical. Works on any (..., ndim) numpy or jax array."""
+    mu, sigma = _stats(names, param_stats)
+    return theta * sigma + mu
+
+
 def normalize_priors(priors, param_stats):
     out = {}
     for name, prior in priors.items():
         mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
-        out[name] = {"range": (prior["range"] - mu) / sigma, "type": prior["type"]}
+        out[name] = {
+            "range": (np.asarray(prior["range"]) - mu) / sigma,
+            "type": prior["type"],
+        }
     return out
-
-
-def unnormalize_array(arr, names, param_stats):
-    """
-    arr: (..., D) normalised values, columns ordered as `names`.
-    Works for a single vector (D,) or samples (n, D).
-    """
-    as_dict = {name: arr[..., i] for i, name in enumerate(names)}
-    un = unnormalize(as_dict, param_stats)
-    return jnp.stack([un[name] for name in names], axis=-1)
 
 # --------------------------------------------------------------------------
 # 0. Save the simulation
@@ -159,8 +177,8 @@ def save_simulation(
     file_name,
     params_dict,
     dict_arrays,
-    priors,
-    sim_config_path="sim_config.py",
+    priors=None,
+    sim_config_path=None,
 ):
     """
     Create a folder and save a simulation and its configuration to HDF5.
@@ -182,13 +200,13 @@ def save_simulation(
         Dictionary mapping data-column names to arrays containing the
         simulated data.
 
-    priors : dict
+    priors : dict, optional
         Dictionary containing the prior definitions for each parameter.
         Each prior must contain a ``"range"`` entry and a ``"type"`` entry.
 
     sim_config_path : pathlib.Path or str or None, optional
         Path to the configuration file to copy into ``folder_path``.
-        If ``None``, no file is copied. Default is ``"sim_config.py"``.
+        If ``None``, no file is copied. Default is ``None``.
 
     Returns
     -------
@@ -215,18 +233,19 @@ def save_simulation(
 
         # Save parameters
         for key, arr in params_dict.items():
-            f.create_dataset(f"params/{key}", data=arr, dtype=np.float32)
+            f.create_dataset(f"params/{key}", data=np.asarray(arr), dtype=np.float32)
 
         # Save data columns
         for col, arr in dict_arrays.items():
-            f.create_dataset(f"data/{col}", data=arr, dtype=np.float32)
+            f.create_dataset(f"data/{col}", data=np.asarray(arr), dtype=np.float32)
 
         # Save priors
-        priors_grp = f.create_group("priors")
-        for name, prior in priors.items():
-            param_grp = priors_grp.create_group(name)
-            param_grp.create_dataset("range", data=prior["range"])
-            param_grp.attrs["type"] = prior["type"]
+        if priors is not None:
+            priors_grp = f.create_group("priors")
+            for name, prior in priors.items():
+                param_grp = priors_grp.create_group(name)
+                param_grp.create_dataset("range", data=prior["range"])
+                param_grp.attrs["type"] = prior["type"]
 
     return save_path
 
@@ -250,10 +269,10 @@ def load_simulation(sim_dir, file_name="simulation.h5"):
         Dictionary mapping data-column names to NumPy arrays loaded from the
         ``data`` HDF5 group.
 
-    priors : dict
+    priors : dict or None
         Dictionary containing the prior definitions loaded from the
-        ``priors`` HDF5 group. Each entry contains ``"range"`` and
-        ``"type"``.
+        ``priors`` HDF5 group, or ``None`` if not present. Each entry
+        contains ``"range"`` and ``"type"``.
 
     Raises
     ------
@@ -283,14 +302,17 @@ def load_simulation(sim_dir, file_name="simulation.h5"):
         for col in f["data"]:
             dict_arrays[col] = f[f"data/{col}"][:]
 
-        # Load priors
-        for name in f["priors"]:
-            param_grp = f[f"priors/{name}"]
+        # Load priors if present
+        if "priors" in f:
+            for name in f["priors"]:
+                param_grp = f[f"priors/{name}"]
 
-            priors[name] = {
-                "range": param_grp["range"][:],
-                "type": param_grp.attrs["type"],
-            }
+                priors[name] = {
+                    "range": param_grp["range"][:],
+                    "type": param_grp.attrs["type"],
+                }
+        else:
+            priors = None
 
     return params_dict, dict_arrays, priors
 
@@ -300,41 +322,10 @@ def load_simulation(sim_dir, file_name="simulation.h5"):
 def save_hdf5(file_path, params, data):
     """
     Save parameter and data dictionaries to an HDF5 file.
-
-    Parameters
-    ----------
-    file_path : pathlib.Path or str
-        Path of the HDF5 file to create. An existing file at this path is
-        overwritten.
-
-    params : dict
-        Dictionary mapping parameter names to array-like values. Parameters
-        are stored in the ``params`` HDF5 group.
-
-    data : dict
-        Dictionary mapping data-column names to array-like values. Data are
-        stored in the ``data`` HDF5 group.
-
-    Returns
-    -------
-    None
-
-    Notes
-    -----
-    Values are converted to NumPy arrays using ``np.asarray`` before being
-    written to the HDF5 file.
+    Delegates to :func:`save_simulation`.
     """
-    with h5py.File(file_path, "w") as f:
-
-        # Save parameters
-        params_grp = f.create_group("params")
-        for k, value in params.items():
-            params_grp.create_dataset(k, data=np.asarray(value))
-
-        # Save data
-        data_grp = f.create_group("data")
-        for k, value in data.items():
-            data_grp.create_dataset(k, data=np.asarray(value))
+    file_path = Path(file_path)
+    return save_simulation(file_path.parent, file_path.name, params, data)
 
 def _load_group(group):
     """

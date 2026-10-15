@@ -15,7 +15,7 @@ def evaluate_on_test(models, test_sets, param_groups, cfg, gpu):
         _, acc = nntr.run_epoch(model, x, y, cfg["batch_size"], gpu, pos_weight=1)
         acc = float(acc)
         accuracies.append(acc)
-        name = group if isinstance(group, str) else "+".join(group)
+        name = dh.format_groups([group])
         print(f"Group {g} ({name}): {acc:.2%}")
     return accuracies
 
@@ -198,37 +198,6 @@ def stack_thetas(params, names):
     """dict of per-sim arrays -> (N_sims, ndim) array ordered like ``names``."""
     return np.column_stack([np.asarray(params[n]) for n in names])
 
-
-def _stats(names, param_stats):
-    mu = np.array([param_stats[n]["mu"] for n in names])
-    sigma = np.array([param_stats[n]["sigma"] for n in names])
-    return mu, sigma
-
-
-def normalize(theta, names, param_stats):
-    """physical -> normalized. Works on any (..., ndim) numpy or jax array."""
-    mu, sigma = _stats(names, param_stats)
-    return (theta - mu) / sigma
-
-
-def unnormalize(theta, names, param_stats):
-    """normalized -> physical. Works on any (..., ndim) numpy or jax array."""
-    mu, sigma = _stats(names, param_stats)
-    return theta * sigma + mu
-
-
-def normalize_priors(priors, param_stats):
-    """Same as the notebook loop: map each prior range to normalized space."""
-    out = {}
-    for name, prior in priors.items():
-        mu, sigma = param_stats[name]["mu"], param_stats[name]["sigma"]
-        out[name] = {
-            "range": (np.asarray(prior["range"]) - mu) / sigma,
-            "type": prior["type"],
-        }
-    return out
-
-
 # =====================================================================
 # 2. TARP core -- backend independent, shared by both pipelines
 # =====================================================================
@@ -356,33 +325,4 @@ def sample_nn_posteriors(
         return rng_key, post
 
     rng_key, post_norm = jax.lax.scan(scan_step, rng_key, (x_list, theta_init_list))
-    return unnormalize(post_norm, param_names, param_stats), rng_key
-
-
-def compute_ecp_tarp_groups(
-    models_per_group, x_list, theta_star_list, alpha_list, priors, param_names,
-    visible_indices, group_indices, group_names_list, param_stats,
-    n_warmup, n_samples, rng_key, rng=None, theta_ref=None,
-):
-    """
-    Backward-compatible wrapper: NN sampler + shared TARP.
-
-    ``priors`` and ``theta_star_list`` are in NORMALIZED space, as before.
-    Returns (ecp_vals, f_vals, posteriors, rng_key); ``posteriors`` and the
-    TARP are in physical units.
-    """
-    posteriors, rng_key = sample_nn_posteriors(
-        models_per_group, x_list, theta_star_list, priors, param_names,
-        visible_indices, group_indices, group_names_list, param_stats,
-        n_warmup, n_samples, rng_key,
-    )
-    low_n, high_n = prior_bounds(priors, param_names)
-    low = unnormalize(low_n, param_names, param_stats)
-    high = unnormalize(high_n, param_names, param_stats)
-    true_thetas = unnormalize(np.asarray(theta_star_list), param_names, param_stats)
-
-    alphas = np.asarray(alpha_list)
-    if theta_ref is None:
-        theta_ref = sample_reference_points(rng, low, high, len(posteriors))
-    f_vals = tarp_f_values(posteriors, true_thetas, theta_ref, low, high)
-    return ecp_from_f(f_vals, alphas), f_vals, posteriors, rng_key
+    return dh.unnormalize(post_norm, param_names, param_stats), rng_key

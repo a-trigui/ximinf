@@ -10,6 +10,8 @@ import jax.numpy as jnp  # Numpy for JAX
 from flax import nnx  # The Flax NNX API
 import numpy as np
 
+import ximinf.nn_inference as nninf
+
 # Optimization
 import optax  # Optimisers for JAX
 
@@ -175,14 +177,8 @@ def split_dataset(arrays, key, cfg):
 # ===============================================================
 def build_group_indices(param_groups, param_names):
     """List of (current_idx, visible_idx), one per group."""
-    out, seen = [], []
-    for group in param_groups:
-        names = [group] if isinstance(group, str) else list(group)
-        cur = jnp.array([param_names.index(n) for n in names], dtype=int)
-        vis = jnp.array([param_names.index(n) for n in seen + names], dtype=int)
-        out.append((cur, vis))
-        seen += names
-    return out
+    visible_indices, group_indices = nninf.preprocess_groups(param_groups, param_names)
+    return list(zip(group_indices, visible_indices))
 
 # ===============================================================
 # 4. Inputs / labels for one group

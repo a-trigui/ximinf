@@ -3,6 +3,9 @@ import jax.numpy as jnp
 import blackjax
 
 
+from ximinf.data_helper import group_names_as_lists
+
+
 # ----------------------------
 # Utilities
 # ----------------------------
@@ -40,13 +43,10 @@ def preprocess_groups(param_groups, global_param_names):
     visible_indices = []
     group_indices = []
     prev = []
-    for group in param_groups:
-        group_list = [group] if isinstance(group, str) else group
+    for group_list in group_names_as_lists(param_groups):
         visible = prev + group_list
-        visible_idx = jnp.array([global_param_names.index(name) for name in visible])
-        group_idx = jnp.array([global_param_names.index(name) for name in group_list])
-        visible_indices.append(visible_idx)
-        group_indices.append(group_idx)
+        visible_indices.append(jnp.array([global_param_names.index(name) for name in visible]))
+        group_indices.append(jnp.array([global_param_names.index(name) for name in group_list]))
         prev = visible
     return visible_indices, group_indices
 

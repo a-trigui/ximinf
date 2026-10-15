@@ -2,6 +2,8 @@ import os
 import pickle
 from flax import nnx
 
+import ximinf.data_helper as dh
+
 # Checkpointing
 import orbax.checkpoint as ocp  # Checkpointing library
 ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
@@ -144,11 +146,7 @@ def load_autoregressive_nn(path, model_cls):
 
     return models_per_group, model_config
 
-def _fmt_groups(groups):
-    """['mabs', 'beta', 'alpha'] -> 'mabs-beta-alpha'; nested groups joined with '+'."""
-    return "+".join(
-        "-".join(g) if isinstance(g, (list, tuple)) else str(g) for g in groups
-    )
+
 
 
 def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
@@ -160,7 +158,7 @@ def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
     return (
         f"NN_M_N_{ctx['N']}_{n_realisations}_M_{ctx['M']}"
         f"_batch_{cfg['batch_size']}_lr_{cfg['lr']}_wd_{cfg['wd']}"
-        f"_params_{_fmt_groups(param_groups)}"
+        f"_params_{dh.format_groups(param_groups)}"
         f"_dropout_phi_{arch['phi_dropout']}_rho_{arch['rho_dropout']}"
         f"_width_phi_{arch['width_phi']}_rho_{arch['width_rho']}"
         f"_depth_phi_{arch['depth_phi']}_rho_{arch['depth_rho']}"
