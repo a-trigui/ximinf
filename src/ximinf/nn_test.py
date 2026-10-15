@@ -325,4 +325,4 @@ def sample_nn_posteriors(
         return rng_key, post
 
     rng_key, post_norm = jax.lax.scan(scan_step, rng_key, (x_list, theta_init_list))
-    return dh.unnormalize(post_norm, param_names, param_stats), rng_key
+    return dh.unnormalize_array(post_norm, param_names, param_stats), rng_key
