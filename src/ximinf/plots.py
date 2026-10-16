@@ -816,7 +816,7 @@ def plot_posterior_traces(
 
     return fig, axes[:n_params]
 
-def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10, sim_path=None, file_name="histogram"):
+def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels, cov=None, bins=10, sim_path=None, file_name="histogram"):
     figs, axes = plt.subplots(1, 3, figsize=(12, 4))
 
     for idx, ax in enumerate(axes):
@@ -841,7 +841,9 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10,
         if cov is not None:
             x = np.linspace(-3, 3, 100)
         else:
-            x = np.linspace(2*bias.min(), 2*bias.max(), 100)
+            x_min, x_max = bias.min(), bias.max()
+            margin = (x_max - x_min)
+            x = np.linspace(x_min - margin, x_max + margin, 100)
 
         ax.plot(
             x,
@@ -857,7 +859,7 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels, cov=None, bins=10,
 
     handles, labels = axes[0].get_legend_handles_labels()
     figs.legend(handles, labels)
-    
+
     if sim_path is not None:
         figs.savefig(f"{sim_path}/Images/{file_name}.png")
 

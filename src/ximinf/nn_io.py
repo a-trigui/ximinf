@@ -1,14 +1,13 @@
-import pickle
-from flax import nnx
-
 import ximinf.data_helper as dh
 
-# Checkpointing
-import orbax.checkpoint as ocp  # Checkpointing library
-ckpt_dir = ocp.test_utils.erase_and_create_empty('/tmp/my-checkpoints/')
-
-from pathlib import Path
+import pickle
 import shutil
+from pathlib import Path
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+from flax import nnx
 
 
 def save_autoregressive_nn(models_per_group, path, model_config):
@@ -16,56 +15,56 @@ def save_autoregressive_nn(models_per_group, path, model_config):
     Save an autoregressive stack of NNX models and its configuration.
 
     Each model is split with ``nnx.split`` so that its graph-independent state
-    can be checkpointed independently of the model graph definition. The state
-    of group ``g`` is stored as ``state_group_g``. The model configuration is
-    stored in ``config.pkl`` using Python ``pickle`` serialization.
+    (everything except RNG keys and counts) can be stored without the model
+    graph definition. The state of group ``g`` is converted to a pure nested
+    dict of numpy arrays and pickled as ``state_group_{group_id}.pkl``, where
+    ``group_id`` is read from ``model_config["groups"][g]``. The model
+    configuration is stored in ``config.pkl``.
 
     Parameters
     ----------
     models_per_group : list of nnx.Module
-        Neural network models corresponding to the autoregressive parameter
-        groups. One model is saved for each group.
+        One model per autoregressive parameter group.
     path : str or path-like
-        Directory in which the model checkpoints and configuration files are
-        stored. If the directory already exists, its contents are removed
-        before creating the new checkpoint.
+        Checkpoint directory. If it already exists, its contents are removed
+        before the new checkpoint is written.
     model_config : dict
-        Full model configuration containing the shared configuration and the
-        configuration for each autoregressive group.
+        Full model configuration with keys ``"shared"`` and ``"groups"``.
 
     Returns
     -------
     None
-        The model states and configuration are written to disk.
     """
+    group_configs = model_config["groups"]
+    if len(models_per_group) != len(group_configs):
+        raise ValueError(
+            f"{len(models_per_group)} models but {len(group_configs)} group configs."
+        )
+
     ckpt_dir = Path(path).resolve()
     if ckpt_dir.exists():
         shutil.rmtree(ckpt_dir)
     ckpt_dir.mkdir(parents=True)
 
-    checkpointer = ocp.StandardCheckpointer()
+    for model, gconf in zip(models_per_group, group_configs):
+        _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
+        pure = jax.tree.map(np.asarray, nnx.to_pure_dict(state))  # host numpy
+        with open(ckpt_dir / f"state_group_{gconf['group_id']}.pkl", "wb") as f:
+            pickle.dump(pure, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    try:
-        for g, model in enumerate(models_per_group):
-            _, _, _, state = nnx.split(model, nnx.RngKey, nnx.RngCount, ...)
-            checkpointer.save(ckpt_dir / f"state_group_{g}", state)
-        checkpointer.wait_until_finished()   # all writes committed
-    finally:
-        checkpointer.close()                 # runs even if a save raised
-
-    # Save configuration
     with open(ckpt_dir / "config.pkl", "wb") as f:
         pickle.dump(model_config, f)
+
 
 def load_autoregressive_nn(path, model_cls):
     """
     Load an autoregressive stack of NNX models from a checkpoint directory.
 
-    For each group, an abstract model is instantiated from the stored
-    architecture configuration. Its graph definition and RNG state are extracted
-    with ``nnx.split`` and used to define the target checkpoint structure. The
-    saved parameter state is restored with the Orbax ``StandardCheckpointer``
-    and merged back with the graph definition using ``nnx.merge``.
+    For each group, a model is instantiated from the stored architecture
+    configuration. Its graph definition and RNG state are extracted with
+    ``nnx.split``. The saved parameter state is loaded, checked against the
+    freshly built state (structure, shapes, dtypes), written into it with
+    ``nnx.replace_by_pure_dict`` and merged back with ``nnx.merge``.
 
     Parameters
     ----------
@@ -73,22 +72,17 @@ def load_autoregressive_nn(path, model_cls):
         Directory containing the saved model states and configuration.
     model_cls : type
         NNX model class used to reconstruct each autoregressive model.
-        The class must accept the architecture parameters stored in the
-        model configuration.
 
     Returns
     -------
     models_per_group : list of nnx.Module
-        Reconstructed neural network models, one for each autoregressive
-        parameter group.
     model_config : dict
-        Configuration dictionary loaded from ``config.pkl``.
 
     Raises
     ------
     ValueError
-        If the checkpoint directory does not exist or if ``config.pkl`` is
-        missing.
+        If the directory, ``config.pkl`` or a state file is missing, or if a
+        saved state does not match the architecture in the configuration.
     """
     ckpt_dir = Path(path).resolve()
     if not ckpt_dir.exists():
@@ -104,39 +98,51 @@ def load_autoregressive_nn(path, model_cls):
     shared = model_config["shared"]
     group_configs = model_config["groups"]
 
-    checkpointer = ocp.StandardCheckpointer()
     models_per_group = []
-    try:
-        for gconf in group_configs:
-            n_params_visible = gconf["n_params_visible"]
-            abstract_model = model_cls(
-                phi_drop_rate=shared["phi_dropout_rate"],
-                rho_drop_rate=shared["rho_dropout_rate"],
-                Nsize_p=shared["Nsize_p"],
-                Nsize_r=shared["Nsize_r"],
-                depth_r=shared["depth_r"],
-                depth_p=shared["depth_p"],
-                n_cols=len(shared["columns"]),
-                n_params=n_params_visible,
-                rngs=nnx.Rngs(0),
-            )
-            graphdef, rngkey, rngcount, abstract_state = nnx.split(
-                abstract_model, nnx.RngKey, nnx.RngCount, ...
-            )
-            state = checkpointer.restore(
-                ckpt_dir / f"state_group_{gconf['group_id']}",
-                target=abstract_state,
-            )
-            models_per_group.append(nnx.merge(graphdef, rngkey, rngcount, state))
-    finally:
-        checkpointer.close()
+    for gconf in group_configs:
+        state_path = ckpt_dir / f"state_group_{gconf['group_id']}.pkl"
+        if not state_path.exists():
+            raise ValueError(f"State file {state_path} not found.")
+
+        model = model_cls(
+            phi_drop_rate=shared["phi_dropout_rate"],
+            rho_drop_rate=shared["rho_dropout_rate"],
+            Nsize_p=shared["Nsize_p"],
+            Nsize_r=shared["Nsize_r"],
+            depth_r=shared["depth_r"],
+            depth_p=shared["depth_p"],
+            n_cols=len(shared["columns"]),
+            n_params=gconf["n_params_visible"],
+            rngs=nnx.Rngs(0),
+        )
+        graphdef, rngkey, rngcount, state = nnx.split(
+            model, nnx.RngKey, nnx.RngCount, ...
+        )
+
+        with open(state_path, "rb") as f:
+            pure = pickle.load(f)
+
+        # Same role as `target=abstract_state` in Orbax: refuse a mismatch.
+        def _check(expected, loaded):
+            if expected.shape != loaded.shape or expected.dtype != loaded.dtype:
+                raise ValueError(
+                    f"Group {gconf['group_id']}: saved {loaded.dtype}{loaded.shape} "
+                    f"!= model {expected.dtype}{expected.shape}."
+                )
+            return loaded
+
+        try:
+            pure = jax.tree.map(_check, nnx.to_pure_dict(state), pure)
+        except ValueError as e:
+            raise ValueError(
+                f"State in {state_path} does not match the model: {e}"
+            ) from e
+
+        pure = jax.tree.map(jnp.asarray, pure)
+        nnx.replace_by_pure_dict(state, pure)
+        models_per_group.append(nnx.merge(graphdef, rngkey, rngcount, state))
 
     return models_per_group, model_config
-
-    return models_per_group, model_config
-
-
-
 
 def build_run_name(cfg, ctx, param_groups, arch, n_realisations, sim_idx):
     """
