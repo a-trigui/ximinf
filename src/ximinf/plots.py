@@ -760,11 +760,32 @@ def plot_posterior_traces(
 
     return fig, axes[:n_params]
 
+def fmt_sci(x, digits=1):
+    """Format a number as a LaTeX string: 1.23\\times10^{-5}"""
+    if x == 0 or not np.isfinite(x):
+        return f"{x:.{digits}g}"      # was :f, now :g
+    exp = int(np.floor(np.log10(abs(x))))
+    if -2 <= exp <= 2:
+        return f"{x:.{digits}g}"
+    mant = x / 10**exp
+    return rf"{mant:.{digits}f}\!\times\!10^{{{exp}}}"
+    
 def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels,
-                         cov=None, bins=20, sim_path=None, file_name="histogram"):
-    figs, axes = plt.subplots(1, 3, figsize=(12, 4))
+                         cov=None, bins=20, sim_path=None, file_name="histogram",
+                         n_cols=3, subplot_size=(4, 4)):
+    n_params = mu_list.shape[1]
+    n_cols = min(n_cols, n_params)
+    n_rows = int(np.ceil(n_params / n_cols))
 
-    for idx, ax in enumerate(axes):
+    figs, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(subplot_size[0] * n_cols, subplot_size[1] * n_rows),
+        squeeze=False,
+    )
+    axes_flat = axes.ravel()
+
+    for idx in range(n_params):
+        ax = axes_flat[idx]
         bias = mu_list[:, idx] - mu_nn[:, idx]
 
         if cov is not None:
@@ -775,39 +796,37 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels,
         else:
             mean, std = np.mean(bias), np.std(bias)
             x_label = "Bias"
-            hist_range = None  # let matplotlib use the data range
+            hist_range = None
 
-        ax.hist(
-            bias,
-            density=True,
-            bins=bins,
-            range=hist_range,   # bins span exactly [-4, 4] in pull mode
-            color=BLUE,
-            alpha=0.8,
-        )
+        label = param_labels.get(names[idx], names[idx])
+        ax.hist(bias, density=True, bins=bins, range=hist_range,
+                color=BLUE, alpha=0.8, label=rf"${label}$")
 
         if cov is not None:
-            ax.set_xlim(-4, 4)  # fixed x axis in pull mode
+            ax.set_xlim(-4, 4)
             x = np.linspace(-4, 4, 200)
         else:
             x_min, x_max = bias.min(), bias.max()
             margin = x_max - x_min
-            x = np.linspace(x_min - 0.2*margin, x_max + 0.2*margin, 100)
+            x = np.linspace(x_min - 0.2 * margin, x_max + 0.2 * margin, 100)
 
-        ax.plot(
-            x,
-            stats.norm.pdf(x, loc=mean, scale=std),
-            color=RED,
-            lw=2,
-        )
+        ax.plot(x, stats.norm.pdf(x, loc=mean, scale=std),
+                color=RED, lw=2,
+                label = rf"$\mathcal{{N}}({fmt_sci(mean)},\,{fmt_sci(std)})$") #rf"$\mathcal{{N}}({mean:.1e},\ {std:.1e})$")
+        ax.axvline(0, lw=2, c="k", ls="--", alpha=0.2)
+        
+        # Make room: raise the top of the y-axis so the legend sits above the data
+        ymin, ymax = ax.get_ylim()
+        ax.set_ylim(ymin, ymax * 1.35)
+        
+        ax.legend(loc="best")
 
-        label = param_labels.get(names[idx], names[idx])
-        ax.set_title(rf"${label}$")
         ax.set_xlabel(x_label)
         ax.set_ylabel("Density")
 
-    handles, labels = axes[0].get_legend_handles_labels()
-    figs.legend(handles, labels)
+    # Hide any unused axes in the last row
+    for ax in axes_flat[n_params:]:
+        ax.set_visible(False)
 
     plt.tight_layout()
     if sim_path is not None:
