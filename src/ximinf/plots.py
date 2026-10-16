@@ -671,64 +671,6 @@ def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
     
     return fig, ax
 
-def plot_pulls(mu_list, true_thetas, cov_list, global_param_names, param_labels, sim_path=None, file_name="systematics"):
-    """
-    Plot standardized pull histograms against standard normal distributions.
-
-    Parameters
-    ----------
-    mu_list : numpy.ndarray
-        Posterior means of shape ``(Nsims, ndim)``.
-    true_thetas : numpy.ndarray
-        True parameter values of shape ``(Nsims, ndim)``.
-    cov_list : numpy.ndarray
-        Posterior covariance matrices of shape ``(Nsims, ndim, ndim)``.
-    global_param_names : sequence of str
-        List of parameter names for each dimension.
-    param_labels : dict, optional
-        Dictionary mapping parameter names to LaTeX label strings.
-    sim_path : str or pathlib.Path
-        Directory path where the figure is saved under
-        ``{sim_path}/Images/{file_name}.png``.
-    file_name : str, optional
-        Output filename without extension. Default is ``"systematics"``.
-    """
-    figs, axes = plt.subplots(1, len(global_param_names), figsize=[len(global_param_names)*4, 3])
-    axes = np.atleast_1d(axes)
-    diag_cov = np.diagonal(cov_list, axis1=1, axis2=2)
-
-    param_labels = param_labels or {}
-
-    labels_common = [
-        param_labels.get(n, n.replace("_", r"\_"))
-        for n in global_param_names
-    ]
-
-    for i in range(len(global_param_names)):
-        axes[i].hist(
-            (mu_list[:, i] - true_thetas[:, i]) / np.sqrt(diag_cov[:, i]),
-            density=True,
-            bins=20,
-            color=BLUE,
-            alpha=0.8
-        )
-        x = np.linspace(-5, 5, 1000)
-        axes[i].plot(
-            x, stats.norm.pdf(x, 0, 1),
-            lw=2, c=RED, label=r"$\mathcal{N}(0,1)$"
-        )
-        axes[i].set_xlabel(f"${labels_common[i]}$")
-
-    axes[0].set_ylabel("Density")
-
-    handles, labels = axes[0].get_legend_handles_labels()
-    figs.legend(handles, labels)
-    if sim_path is not None:
-        figs.savefig(f"{sim_path}/Images/{file_name}.png")
-
-    plt.tight_layout()
-    plt.show()
-
 def plot_posterior_traces(
     post_unnormed,
     global_param_names,
@@ -816,7 +758,8 @@ def plot_posterior_traces(
 
     return fig, axes[:n_params]
 
-def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels, cov=None, bins=10, sim_path=None, file_name="histogram"):
+def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels,
+                         cov=None, bins=20, sim_path=None, file_name="histogram"):
     figs, axes = plt.subplots(1, 3, figsize=(12, 4))
 
     for idx, ax in enumerate(axes):
@@ -826,23 +769,27 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels, cov=N
             bias = bias / np.sqrt(cov[:, idx, idx])
             mean, std = 0, 1
             x_label = "Pull"
+            hist_range = (-4, 4)
         else:
             mean, std = np.mean(bias), np.std(bias)
             x_label = "Bias"
+            hist_range = None  # let matplotlib use the data range
 
         ax.hist(
             bias,
             density=True,
             bins=bins,
+            range=hist_range,   # bins span exactly [-4, 4] in pull mode
             color=BLUE,
             alpha=0.8,
         )
 
         if cov is not None:
-            x = np.linspace(-3, 3, 100)
+            ax.set_xlim(-4, 4)  # fixed x axis in pull mode
+            x = np.linspace(-4, 4, 200)
         else:
             x_min, x_max = bias.min(), bias.max()
-            margin = (x_max - x_min)
+            margin = x_max - x_min
             x = np.linspace(x_min - margin, x_max + margin, 100)
 
         ax.plot(
@@ -860,8 +807,7 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels, cov=N
     handles, labels = axes[0].get_legend_handles_labels()
     figs.legend(handles, labels)
 
+    plt.tight_layout()
     if sim_path is not None:
         figs.savefig(f"{sim_path}/Images/{file_name}.png")
-
-    plt.tight_layout()
     plt.show()
