@@ -628,7 +628,7 @@ def plot_corner_comparison(
 
     return g
 
-def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
+def plot_ecp(alphas, ecp, f_vals=None, sim_path=None, file_name="tarp"):
     """
     Plot the Empirical Coverage Probability (ECP) curve against credibility.
 
@@ -659,7 +659,9 @@ def plot_ecp(alphas, ecp, sim_path=None, file_name="tarp"):
 
     ax.set_xlabel("Credibility")
     ax.set_ylabel("Coverage")
-    # ax.set_title("Expected Coverage Probability")
+    if f_vals is not None:
+        p_value = stats.kstest(f_vals, "uniform").pvalue
+        ax.set_title(f"KS test p-value : {100*p_value:.1f} %")
     ax.grid(True, linestyle=':')
     ax.legend()
     ax.set_aspect('equal', adjustable='box')
@@ -790,7 +792,7 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels,
         else:
             x_min, x_max = bias.min(), bias.max()
             margin = x_max - x_min
-            x = np.linspace(x_min - margin, x_max + margin, 100)
+            x = np.linspace(x_min - 0.2*margin, x_max + 0.2*margin, 100)
 
         ax.plot(
             x,
