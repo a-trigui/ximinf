@@ -5,6 +5,7 @@ from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from getdist import plots, MCSamples
 from scipy import stats
+import os
 
 BLUE = '#1F487E'
 RED = '#A31621'
@@ -667,7 +668,9 @@ def plot_ecp(alphas, ecp, f_vals=None, sim_path=None, file_name="tarp"):
     ax.set_aspect('equal', adjustable='box')
 
     fig.tight_layout()
+
     if sim_path is not None:
+        os.makedirs(f"{sim_path}/Images", exist_ok=True)
         fig.savefig(f"{sim_path}/Images/{file_name}.png")
     plt.show()
     
@@ -830,5 +833,157 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels,
 
     plt.tight_layout()
     if sim_path is not None:
+        os.makedirs(f"{sim_path}/Images", exist_ok=True)
         figs.savefig(f"{sim_path}/Images/{file_name}.png")
+    plt.show()
+
+def plot_bias_summary(mu_list, mu_nn, cov_list, names, param_labels=param_labels,
+                      interval="perc", show_sem=True,
+                      sim_path=None, file_name="bias_summary"):
+    """
+    One row per parameter:
+      point = mean of (mu_list - mu_nn) / sigma_ref
+      bar   = scatter of that quantity (left/right)
+      thick = standard error on the mean (optional)
+
+    sigma_ref = sqrt(diag(cov_list)) of the reference method, per sample.
+    cov_list : (N, P, P), or a single (P, P) matrix used for all samples.
+    interval : "std"  -> symmetric +/- std
+               "perc" -> 16th-84th percentiles (asymmetric left/right)
+    """
+    n_params = mu_list.shape[1]
+    N = mu_list.shape[0]
+    cov_list = np.asarray(cov_list)
+
+    means, lo, hi, sem = [], [], [], []
+    for i in range(n_params):
+        if cov_list.ndim == 3:
+            sigma_ref = np.sqrt(cov_list[:, i, i])
+        else:
+            sigma_ref = np.sqrt(cov_list[i, i])
+
+        pull = (mu_list[:, i] - mu_nn[:, i]) / sigma_ref
+        m = pull.mean()
+        means.append(m)
+        sem.append(pull.std(ddof=1) / np.sqrt(N))
+        if interval == "perc":
+            p16, p84 = np.percentile(pull, [16, 84])
+            lo.append(m - p16)
+            hi.append(p84 - m)
+        else:
+            lo.append(pull.std())
+            hi.append(pull.std())
+
+    means, sem = np.array(means), np.array(sem)
+    err = np.array([lo, hi])
+    y = np.arange(n_params)[::-1]  # first parameter at the top
+
+    fig, ax = plt.subplots(figsize=(6, 0.6 * n_params + 1.5))
+
+    # Scatter (thin bar with caps)
+    ax.errorbar(means, y, xerr=err, fmt="none", ecolor=BLUE,
+                elinewidth=1.5, capsize=4, label="Scatter")
+    # Mean and its standard error (thick bar)
+    ax.errorbar(means, y, xerr=sem if show_sem else None, fmt="o", color=RED,
+                ms=6, elinewidth=4, capsize=0,
+                label=r"Mean $\pm$ s.e.m." if show_sem else "Mean")
+
+    ax.axvline(0, lw=2, c="k", ls="--", alpha=0.3)
+    ax.axvline(-1, lw=1, c="k", ls=":", alpha=0.2)
+    ax.axvline(1, lw=1, c="k", ls=":", alpha=0.2)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([rf"${param_labels.get(n, n)}$" for n in names])
+    ax.set_ylim(-0.7, n_params - 0.3)
+    ax.set_xlabel(r"Bias / $\sigma_{\rm ref}$")
+    ax.grid(axis="x", alpha=0.2)
+    ax.legend(loc="best")
+
+    plt.tight_layout()
+    if sim_path is not None:
+        os.makedirs(f"{sim_path}/Images", exist_ok=True)
+        fig.savefig(f"{sim_path}/Images/{file_name}.png")
+    plt.show()
+
+
+def plot_covariance_ratio(cov_list_1, cov_list_2, names,
+                          param_labels=param_labels,
+                          interval="perc", show_sem=True,
+                          sim_path=None, file_name="covariance_ratio"):
+    """
+    One row per parameter:
+      point = mean of the ratio of covariance diagonal elements
+      bar   = scatter of that ratio (left/right)
+      thick = standard error on the mean (optional)
+
+    ratio = diag(cov_list_1) / diag(cov_list_2)
+
+    cov_list_1, cov_list_2 : (N, P, P), or a single (P, P) matrix.
+    interval : "std"  -> symmetric +/- std
+               "perc" -> 16th-84th percentiles (asymmetric left/right)
+    """
+    cov_list_1 = np.asarray(cov_list_1)
+    cov_list_2 = np.asarray(cov_list_2)
+
+    n_params = cov_list_1.shape[-1]
+
+    # Broadcast a single covariance matrix across samples if necessary
+    if cov_list_1.ndim == 2:
+        cov_list_1 = cov_list_1[None, :, :]
+    if cov_list_2.ndim == 2:
+        cov_list_2 = cov_list_2[None, :, :]
+
+    diag_1 = np.diagonal(cov_list_1, axis1=-2, axis2=-1)
+    diag_2 = np.diagonal(cov_list_2, axis1=-2, axis2=-1)
+
+    ratio = diag_1 / diag_2
+    N = ratio.shape[0]
+
+    means, lo, hi, sem = [], [], [], []
+
+    for i in range(n_params):
+        values = ratio[:, i]
+        m = values.mean()
+
+        means.append(m)
+        sem.append(values.std(ddof=1) / np.sqrt(N) if N > 1 else 0.0)
+
+        if interval == "perc":
+            p16, p84 = np.percentile(values, [16, 84])
+            lo.append(m - p16)
+            hi.append(p84 - m)
+        else:
+            lo.append(values.std(ddof=1) if N > 1 else 0.0)
+            hi.append(values.std(ddof=1) if N > 1 else 0.0)
+
+    means, sem = np.array(means), np.array(sem)
+    err = np.array([lo, hi])
+    y = np.arange(n_params)[::-1]  # first parameter at the top
+
+    fig, ax = plt.subplots(figsize=(6, 0.6 * n_params + 1.5))
+
+    # Scatter (thin bar with caps)
+    ax.errorbar(means, y, xerr=err, fmt="none", ecolor=BLUE,
+                elinewidth=1.5, capsize=4, label="Scatter")
+
+    # Mean and its standard error (thick bar)
+    ax.errorbar(means, y, xerr=sem if show_sem else None, fmt="o",
+                color=RED, ms=6, elinewidth=4, capsize=0,
+                label=r"Mean $\pm$ s.e.m." if show_sem else "Mean")
+
+    ax.axvline(1, lw=2, c="k", ls="--", alpha=0.3)
+    ax.axvline(0, lw=1, c="k", ls=":", alpha=0.2)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([rf"${param_labels.get(n, n)}$" for n in names])
+    ax.set_ylim(-0.7, n_params - 0.3)
+    ax.set_xlabel(r"$C_1/C_2$ (diagonal variances)")
+    ax.grid(axis="x", alpha=0.2)
+    ax.legend(loc="best")
+
+    plt.tight_layout()
+    if sim_path is not None:
+        os.makedirs(f"{sim_path}/Images", exist_ok=True)
+        fig.savefig(f"{sim_path}/Images/{file_name}.png")
+
     plt.show()
