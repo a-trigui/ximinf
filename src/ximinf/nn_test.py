@@ -453,10 +453,109 @@ def samples_to_mean_cov(posterior_samples):
 # =====================================================================
 # cosmologix: keep fit_cosmologix_datasets and sample_from_gaussians as is.
 
+# def make_log_post(models, xi, norm_priors, visible_indices,
+#                   group_indices, group_names_list):
+#     """
+#     Construct a closure that computes the joint autoregressive log-posterior.
+
+#     Parameters
+#     ----------
+#     models : sequence of callable
+#         Neural network models for each parameter group.
+#     xi : jax.Array
+#         Observation features tensor.
+#     norm_priors : dict
+#         Prior specifications for normalized parameters.
+#     visible_indices : sequence of array-like
+#         Visible parameter indices per group.
+#     group_indices : sequence of array-like
+#         Target parameter indices per group.
+#     group_names_list : sequence of list
+#         Parameter names per group.
+
+#     Returns
+#     -------
+#     callable
+#         Function taking parameter vector ``theta`` and returning the scalar
+#         log-probability.
+#     """
+#     def log_post(theta):
+#         return nninf.log_prob_fn_groups(
+#             theta, models, xi, norm_priors,
+#             visible_indices, group_indices, group_names_list,
+#         )
+#     return log_post
+
+
+# def sample_nn_posteriors(
+#     models_per_group, x_list, theta_init_list, norm_priors, param_names,
+#     visible_indices, group_indices, group_names_list, param_stats,
+#     n_warmup, n_samples, rng_key,
+# ):
+#     """
+#     Draw MCMC posterior samples using the neural likelihood ratio estimators.
+
+#     Samples the joint posterior for each observation using NUTS window adaptation
+#     and unnormalizes the resulting chains back to physical parameter units.
+
+#     Parameters
+#     ----------
+#     models_per_group : sequence of callable
+#         Neural network models for each autoregressive group.
+#     x_list : jax.Array
+#         Batch of observation features of shape ``(N, F)``.
+#     theta_init_list : jax.Array
+#         Normalized initial parameter positions for each chain of shape
+#         ``(N, ndim)``.
+#     norm_priors : dict
+#         Prior specifications for normalized parameters.
+#     param_names : list of str
+#         Global ordered parameter names.
+#     visible_indices : sequence of array-like
+#         Visible parameter indices for each group.
+#     group_indices : sequence of array-like
+#         Target parameter indices for each group.
+#     group_names_list : sequence of list
+#         Names of parameters in each group.
+#     param_stats : dict
+#         Mean and standard deviation normalization statistics for each
+#         parameter.
+#     n_warmup : int
+#         Number of warmup iterations for NUTS adaptation.
+#     n_samples : int
+#         Number of posterior samples to draw after warmup.
+#     rng_key : jax.Array
+#         JAX PRNG key.
+
+#     Returns
+#     -------
+#     posteriors : jax.Array
+#         Unnormalized posterior samples in physical parameter units with shape
+#         ``(N, n_samples, ndim)``.
+#     rng_key : jax.Array
+#         Updated JAX PRNG key.
+#     """
+#     def scan_step(rng_key, xi_theta):
+#         xi, theta_init = xi_theta
+#         rng_key, subkey = jax.random.split(rng_key)
+#         log_post = make_log_post(
+#             models_per_group, xi, norm_priors,
+#             visible_indices, group_indices, group_names_list,
+#         )
+#         _, post = nninf.sample_posterior(
+#             log_post, n_warmup, n_samples, theta_init, subkey
+#         )
+#         return rng_key, post
+
+#     rng_key, post_norm = jax.lax.scan(scan_step, rng_key, (x_list, theta_init_list))
+#     return dh.unnormalize_array(post_norm, param_names, param_stats), rng_key
+
+
 def make_log_post(models, xi, norm_priors, visible_indices,
-                  group_indices, group_names_list):
+                  group_indices, group_names_list, to_theta, log_det_jac):
     """
-    Construct a closure that computes the joint autoregressive log-posterior.
+    Construct a closure that computes the joint autoregressive log-posterior
+    in unbounded space.
 
     Parameters
     ----------
@@ -472,18 +571,24 @@ def make_log_post(models, xi, norm_priors, visible_indices,
         Target parameter indices per group.
     group_names_list : sequence of list
         Parameter names per group.
+    to_theta : callable
+        Maps an unbounded vector z to normalized theta inside the prior box.
+    log_det_jac : callable
+        Maps z to the log-Jacobian of ``to_theta``.
 
     Returns
     -------
     callable
-        Function taking parameter vector ``theta`` and returning the scalar
-        log-probability.
+        Function taking an unbounded vector ``z`` and returning the scalar
+        log-density of z, i.e. log p(theta(z) | x) + log|g'(z)|.
     """
-    def log_post(theta):
+    def log_post(z):
+        theta = to_theta(z)
         return nninf.log_prob_fn_groups(
             theta, models, xi, norm_priors,
             visible_indices, group_indices, group_names_list,
-        )
+        ) + log_det_jac(z)
+
     return log_post
 
 
@@ -495,8 +600,10 @@ def sample_nn_posteriors(
     """
     Draw MCMC posterior samples using the neural likelihood ratio estimators.
 
-    Samples the joint posterior for each observation using NUTS window adaptation
-    and unnormalizes the resulting chains back to physical parameter units.
+    Samples the joint posterior for each observation using NUTS window
+    adaptation in an unbounded reparametrization of the (normalized) prior
+    box, maps the chains back to normalized parameters, and unnormalizes
+    them to physical parameter units.
 
     Parameters
     ----------
@@ -506,9 +613,9 @@ def sample_nn_posteriors(
         Batch of observation features of shape ``(N, F)``.
     theta_init_list : jax.Array
         Normalized initial parameter positions for each chain of shape
-        ``(N, ndim)``.
+        ``(N, ndim)``. Must lie inside the prior box.
     norm_priors : dict
-        Prior specifications for normalized parameters.
+        Prior specifications for normalized parameters (all ``"uniform"``).
     param_names : list of str
         Global ordered parameter names.
     visible_indices : sequence of array-like
@@ -535,17 +642,25 @@ def sample_nn_posteriors(
     rng_key : jax.Array
         Updated JAX PRNG key.
     """
+    # Transform depends only on the priors: build it once, outside the scan.
+    to_theta, to_z, log_det_jac = nninf.make_box_transform(norm_priors, param_names)
+
     def scan_step(rng_key, xi_theta):
         xi, theta_init = xi_theta
         rng_key, subkey = jax.random.split(rng_key)
         log_post = make_log_post(
             models_per_group, xi, norm_priors,
             visible_indices, group_indices, group_names_list,
+            to_theta, log_det_jac,
         )
-        _, post = nninf.sample_posterior(
-            log_post, n_warmup, n_samples, theta_init, subkey
+        _, post_z = nninf.sample_posterior(
+            log_post, n_warmup, n_samples, to_z(theta_init), subkey
         )
-        return rng_key, post
+        return rng_key, post_z
 
-    rng_key, post_norm = jax.lax.scan(scan_step, rng_key, (x_list, theta_init_list))
+    rng_key, post_z = jax.lax.scan(scan_step, rng_key, (x_list, theta_init_list))
+
+    # (N, n_samples, ndim) in z-space -> normalized theta-space
+    post_norm = jax.vmap(jax.vmap(to_theta))(post_z)
+
     return dh.unnormalize_array(post_norm, param_names, param_stats), rng_key

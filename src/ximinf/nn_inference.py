@@ -153,6 +153,22 @@ def log_group_prior(theta, priors, group_names, group_indices):
 
     return logp
 
+def make_transform(low, high):
+    scale = high - low
+
+    def to_theta(z):
+        return low + scale * jax.nn.sigmoid(z)
+
+    def to_z(theta, eps=1e-6):
+        u = jnp.clip((theta - low) / scale, eps, 1 - eps)
+        return jnp.log(u) - jnp.log1p(-u)          # logit
+
+    def log_det_jac(z):
+        # d theta / d z = scale * sigmoid(z) * (1 - sigmoid(z))
+        return jnp.sum(jnp.log(scale) + jax.nn.log_sigmoid(z) + jax.nn.log_sigmoid(-z))
+
+    return to_theta, to_z, log_det_jac
+
 
 def inference_loop(initial_state, kernel, num_samples, rng_key):
     """
@@ -361,3 +377,186 @@ def sample_posterior(log_prob, n_warmup, n_samples, init_position, rng_key):
     rng_key, kernel, warmup_state = build_kernel(log_prob, init_position, n_warmup, rng_key)
     rng_key, positions = inference_loop(warmup_state, kernel, n_samples, rng_key)
     return rng_key, positions
+
+def make_box_transform(priors, param_names):
+    """
+    Build the bijection between the prior box and unbounded space.
+ 
+    All parameters are assumed to have a ``"uniform"`` prior. Each parameter
+    theta_i in [low_i, high_i] is written as
+ 
+        theta_i = low_i + (high_i - low_i) * sigmoid(z_i),   z_i in R.
+ 
+    Parameters
+    ----------
+    priors : dict
+        Dictionary mapping parameter names to prior specifications. Each
+        specification must contain a ``"range"`` entry ``(low, high)``.
+    param_names : sequence of str
+        Parameter names, in the same order as the entries of the flat
+        parameter vector `theta`.
+ 
+    Returns
+    -------
+    to_theta : callable
+        Maps an unbounded vector z to theta inside the prior box.
+    to_z : callable
+        Inverse map (logit of the rescaled theta). Values are clipped
+        slightly inside the box so that the result is finite.
+    log_det_jac : callable
+        Maps z to log|det d theta / d z|, the log-Jacobian of `to_theta`.
+    """
+    low = jnp.array([priors[n]["range"][0] for n in param_names], dtype=float)
+    high = jnp.array([priors[n]["range"][1] for n in param_names], dtype=float)
+    scale = high - low
+    log_scale = jnp.log(scale)
+ 
+    def to_theta(z):
+        return low + scale * jax.nn.sigmoid(z)
+ 
+    def to_z(theta, eps=1e-6):
+        p = jnp.clip((theta - low) / scale, eps, 1.0 - eps)
+        return jnp.log(p) - jnp.log1p(-p)
+ 
+    def log_det_jac(z):
+        # d theta / d z = scale * sigmoid(z) * (1 - sigmoid(z))
+        return jnp.sum(
+            log_scale + jax.nn.log_sigmoid(z) + jax.nn.log_sigmoid(-z)
+        )
+ 
+    return to_theta, to_z, log_det_jac
+ 
+ 
+def make_log_prob_unbounded(
+    to_theta,
+    log_det_jac,
+    models_per_group,
+    xi,
+    priors,
+    visible_indices,
+    group_indices,
+    group_names_list,
+):
+    """
+    Build the log-density of the posterior in unbounded space.
+ 
+    Parameters
+    ----------
+    to_theta : callable
+        Maps z to theta inside the prior support.
+    log_det_jac : callable
+        Maps z to the log-Jacobian of `to_theta`.
+    models_per_group : sequence of callable
+        Neural network model associated with each parameter group.
+    xi : jax.Array
+        Simulation summary or observation features supplied to each group
+        model.
+    priors : dict
+        Dictionary containing the prior specification for each parameter.
+    visible_indices : sequence of array-like
+        Indices defining the parameters visible to each group.
+    group_indices : sequence of array-like
+        Indices defining the parameters belonging to each group.
+    group_names_list : sequence of list
+        Parameter names associated with each group.
+ 
+    Returns
+    -------
+    log_prob_unbounded : callable
+        Function z -> log q(z), where
+        q(z) = p(theta = g(z) | x) * |g'(z)|.
+        The networks and priors are only evaluated at theta = g(z), which
+        always lies inside the prior support.
+    """
+ 
+    def log_prob_unbounded(z):
+        theta = to_theta(z)
+        log_post = log_prob_fn_groups(
+            theta,
+            models_per_group,
+            xi,
+            priors,
+            visible_indices,
+            group_indices,
+            group_names_list,
+        )
+        return log_post + log_det_jac(z)
+ 
+    return log_prob_unbounded
+ 
+ 
+def sample_posterior_bounded(
+    models_per_group,
+    xi,
+    priors,
+    param_names,
+    visible_indices,
+    group_indices,
+    group_names_list,
+    theta_init,
+    n_warmup,
+    n_samples,
+    rng_key,
+):
+    """
+    Adapt a NUTS sampler in unbounded space and return samples in theta-space.
+ 
+    Parameters
+    ----------
+    models_per_group : sequence of callable
+        Neural network model associated with each parameter group.
+    xi : jax.Array
+        Simulation summary or observation features supplied to each group
+        model.
+    priors : dict
+        Dictionary containing the prior specification for each parameter
+        (all of type ``"uniform"``).
+    param_names : sequence of str
+        Parameter names, in the order of the flat parameter vector.
+    visible_indices : sequence of array-like
+        Indices defining the parameters visible to each group.
+    group_indices : sequence of array-like
+        Indices defining the parameters belonging to each group.
+    group_names_list : sequence of list
+        Parameter names associated with each group.
+    theta_init : jax.Array
+        Initial parameter vector inside the prior box (e.g. a prior draw).
+    n_warmup : int
+        Number of warmup steps used for NUTS adaptation.
+    n_samples : int
+        Number of posterior samples to generate after warmup.
+    rng_key : jax.Array
+        JAX pseudo-random number generator key.
+ 
+    Returns
+    -------
+    rng_key : jax.Array
+        Updated JAX random key after warmup and posterior sampling.
+    theta_samples : jax.Array
+        Posterior samples in the original (bounded) parameter space, with
+        leading dimension `n_samples`.
+    z_samples : jax.Array
+        Posterior samples in the unbounded space, with leading dimension
+        `n_samples`.
+    """
+    to_theta, to_z, log_det_jac = make_box_transform(priors, param_names)
+ 
+    log_prob_unbounded = make_log_prob_unbounded(
+        to_theta,
+        log_det_jac,
+        models_per_group,
+        xi,
+        priors,
+        visible_indices,
+        group_indices,
+        group_names_list,
+    )
+ 
+    z_init = to_z(theta_init)
+ 
+    rng_key, z_samples = sample_posterior(
+        log_prob_unbounded, n_warmup, n_samples, z_init, rng_key
+    )
+    theta_samples = jax.vmap(to_theta)(z_samples)
+ 
+    return rng_key, theta_samples, z_samples
