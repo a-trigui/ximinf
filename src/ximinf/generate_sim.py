@@ -7,6 +7,10 @@ from scipy.special import erfinv, erf
 import scipy.special as sci_spe
 from modeldag.tools import apply_gaussian_noise
 from copy import deepcopy
+import ximinf.cosmo_helper as ch
+
+import gc
+from joblib import Parallel, delayed
 
 # from dustmaps.config import config
 # config["data_dir"] = "../data/dustmaps"
@@ -193,9 +197,11 @@ def simulate_one(
     M,
     default_params,
     SIMULATION_MODEL,
+    cosmology,
     cols=None,
     errormodel=None,
     draw_errors=True,
+    malmquist=False,
     survey_name=None,
     rng=None,
     N=None,
@@ -287,35 +293,48 @@ def simulate_one(
         if (i + 1) % max(1, N // 10) == 0 or i == N - 1:
             print(f"Simulation {i + 1}/{N}", end="\r", flush=True)
 
-    # Merge defaults with provided params
-    params = {**default_params, **params_dict}
-
     model = deepcopy(SIMULATION_MODEL)
+    cosmo_temp = deepcopy(cosmology)
 
-    model["magabs"]["kwargs"]["sigmaint"] = params["sigma_int"]
-    model["magabs"]["kwargs"]["mabs"] = params["mabs"]
-
-    if "alpha" in params:
-        model["magabs"]["kwargs"]["alpha"] = params["alpha"]
-    else:
-        model["magabs"]["kwargs"]["alpha_low"] = params["alpha_low"]
-        model["magabs"]["kwargs"]["alpha_high"] = params["alpha_high"]
+    magabs_map = {
+        "sigma_int": "sigmaint",   # key renamed in the model
+        "mabs": "mabs",
+        "alpha": "alpha",
+        "alpha_low": "alpha_low",
+        "alpha_high": "alpha_high",
+        "beta": "beta",
+        "gamma": "gamma",
+        "x1_ref": "x1_ref",
+    }
+    cosmo_keys = ["H0", "w"]
     
-    model["magabs"]["kwargs"]["beta"] = params["beta"]
+    for pname, kwname in magabs_map.items():
+        if pname in params_dict:
+            model["magabs"]["kwargs"][kwname] = params_dict[pname]
+    
+    for pname in cosmo_keys:
+        if pname in params_dict:
+            cosmo_temp[pname] = params_dict[pname]
 
-    if "gamma" in model["magabs"]["kwargs"]:
-        model["magabs"]["kwargs"]["gamma"] = params["gamma"]
-
-    if "x1_ref" in model["magabs"]["kwargs"]:
-        model["magabs"]["kwargs"]["x1_ref"] = params["x1_ref"]
-
-    # Set survey-specific selection parameters
+    # Set survey-specific selection parameters (sampled value wins, else default)
     cut_loc, cut_scale = None, None
-    if survey_name is not None:
-        cut_loc_key = f"cut_loc_{survey_name}"
-        cut_scale_key = f"cut_scale_{survey_name}"
-        cut_loc = params[cut_loc_key]
-        cut_scale = params[cut_scale_key]
+    if malmquist:
+        if survey_name is None:
+            raise ValueError("malmquist=True requires survey_name")
+    
+        sel = {**default_params, **params_dict}      # params_dict takes precedence
+        loc_key = f"cut_loc_{survey_name}"
+        scale_key = f"cut_scale_{survey_name}"
+    
+        missing = [k for k in (loc_key, scale_key) if k not in sel]
+        if missing:
+            raise KeyError(
+                f"Malmquist selection for survey '{survey_name}' needs {missing} "
+                f"in either params_dict (priors) or default_params"
+            )
+        cut_loc, cut_scale = sel[loc_key], sel[scale_key]
+        if cut_scale <= 0:
+            raise ValueError(f"{scale_key} must be > 0, got {cut_scale}")
 
     if rng is None:
         rng = np.random.default_rng()
@@ -323,23 +342,21 @@ def simulate_one(
     if "isup" in model:
         model["isup"]["func"] = rng.binomial
 
+    if cosmology is not None:
+        astropy_cosmo = ch.to_astropy(cosmo_temp)
+        
     # Draw
     snia = skysurvey.SNeIa.from_draw(
         size=M,
-        # tstart=58288,
-        # tstop=59274,
         zmax=z_max,
         model=model,
-        # rate=evolving_rate,
-        # effect=skysurvey.effects.mw_extinction,
+        cosmology=astropy_cosmo
     )
 
     df = snia.data
     
     # Noise
     if errormodel is not None:
-        if rng is None:
-            rng = np.random.default_rng()
         df_err = apply_gaussian_noise(errormodel, data=df, rng=rng)
         if draw_errors:
             df = df_err
@@ -356,7 +373,7 @@ def simulate_one(
         p_detect = 1.0 - sci_spe.expit((mag - cut_loc) * cut_scale)
 
         # Bernoulli draw handled by numpy
-        mask = np.random.binomial(1, p_detect).astype(bool)
+        mask = rng.binomial(1, p_detect).astype(bool)
 
         df = df.loc[mask].reset_index(drop=True)
     
@@ -376,6 +393,76 @@ def simulate_one(
             for col in cols
             if col in df
         }
-
-    del df
     return result
+
+def run_simulations(
+    params_dict,
+    N_total,
+    columns,
+    default_params,
+    SIMULATION_MODEL,
+    cosmology,
+    noise_model,
+    child_seeds,
+    num_threads,
+    surveys,        # {"ZTF": {"M": ..., "z_max": ...}, "LSST": {...}}
+    draw_errors=True,
+    malmquist=False,
+    **simulate_kwargs,   # e.g. cosmo=...
+):
+    
+    tasks = []
+    for i in range(N_total):
+        # independent stream per survey, so surveys aren't given identical random draws
+        sub_seeds = child_seeds[i].spawn(len(surveys))
+        for (tag, cfg), seed in zip(surveys.items(), sub_seeds):
+            tasks.append((tag, i, cfg["z_max"], cfg["M"], seed))
+
+    
+    n_jobs = max(1, min(len(tasks) // 20, num_threads - 4))
+    
+    print("Running parallel simulations ..")
+    raw = Parallel(n_jobs=n_jobs)(
+        delayed(simulate_one)(
+            {k: v[sim_idx] for k, v in params_dict.items()},
+            z_max=zm,
+            M=Mi,
+            cols=columns,
+            default_params=default_params,
+            SIMULATION_MODEL=SIMULATION_MODEL,
+            cosmology=cosmology,
+            errormodel=noise_model,
+            draw_errors=draw_errors,
+            malmquist=malmquist,
+            rng=np.random.default_rng(seed),
+            survey_name=tag,
+            N=len(tasks),
+            i=idx,
+            **simulate_kwargs,
+        )
+        for idx, (tag, sim_idx, zm, Mi, seed) in enumerate(tasks)
+    )
+    print(".. done")
+    gc.collect()
+
+    print("Grouping surveys ..")
+
+    survey_ids = {tag: k + 1 for k, tag in enumerate(surveys.keys())}
+    
+    # Regroup by simulation index, add survey tag, concatenate across surveys
+    per_sim = [[] for _ in range(N_total)]
+    for (tag, i, *_), res in zip(tasks, raw):
+        n = len(next(iter(res.values()))) if res else 0
+        res = dict(res)
+        res["survey"] = np.full(n, survey_ids[tag], dtype=np.int32)   # was dtype=object, tag
+        per_sim[i].append(res)
+
+    results = []
+    for parts in per_sim:
+        keys = [k for k in parts[0] if all(k in p for p in parts)]
+        dropped = set().union(*(p.keys() for p in parts)) - set(keys)
+        if dropped:
+            warnings.warn(f"Columns not present in all surveys were dropped: {sorted(dropped)}")
+        results.append({k: np.concatenate([p[k] for p in parts]) for k in keys})
+    print(".. done")
+    return results
