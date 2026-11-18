@@ -178,77 +178,25 @@ def to_cosmologix(cosmo: dict) -> dict:
 
 
 def to_astropy(cosmo: dict):
-    """
-    Convert a canonical cosmology dictionary to an Astropy cosmology object.
-
-    The canonical cosmological parameters are converted to the conventions
-    and units expected by Astropy. A ``FlatLambdaCDM`` instance is returned
-    when ``Omega_k`` is consistent with zero; otherwise a ``LambdaCDM``
-    instance is constructed with the dark-energy density chosen to
-    reproduce the requested curvature.
-
-    Parameters
-    ----------
-    cosmo : dict
-        Canonical cosmology parameter dictionary, as returned by
-        :func:`get_canonical`. It must contain ``H0``, ``Omega_bc``,
-        ``Omega_b_h2``, ``Omega_k``, ``m_nu``, ``Tcmb`` and ``Neff``.
-        The keys ``w`` and ``wa`` are expected to be ``-1`` and ``0``
-        (LambdaCDM only) and are not passed to Astropy.
-
-    Returns
-    -------
-    astropy.cosmology.FlatLambdaCDM or astropy.cosmology.LambdaCDM
-        Astropy cosmology object corresponding to ``cosmo``.
-
-        ``H0`` is given in km / s / Mpc, ``Tcmb0`` in K and ``m_nu`` in eV.
-        ``Om0`` is set to ``Omega_bc``, and ``Ob0`` is derived from
-        ``Omega_b_h2`` and ``H0``.
-
-    Notes
-    -----
-    The baryon density parameter is computed as
-
-    .. math::
-
-        \Omega_b = \frac{\Omega_b h^2}{h^2}, \qquad h = \frac{H_0}{100}.
-
-    The neutrino mass is represented by three species with masses
-    ``[m_nu, 0, 0]`` eV, i.e. the total mass ``m_nu`` is carried by a
-    single species. Astropy's ``Om0`` excludes massive neutrinos, so
-    ``Omega_bc`` is interpreted as the baryon plus cold dark matter
-    density only.
-
-    For a spatially flat cosmology, ``FlatLambdaCDM`` is used and Astropy
-    sets the dark-energy density internally so that the total density is
-    critical. For non-zero curvature, ``LambdaCDM`` is used with
-
-    .. math::
-
-        \Omega_\Lambda = 1 - \Omega_{bc} - \Omega_k
-                         - \Omega_\gamma - \Omega_\nu,
-
-    where :math:`\Omega_\gamma` and :math:`\Omega_\nu` are the photon and
-    neutrino densities computed by Astropy from ``Tcmb``, ``Neff`` and
-    ``m_nu``. Omitting the radiation terms would give a curvature that
-    differs from ``Omega_k`` at the 1e-4 level.
-    """
     h = cosmo["H0"] / 100.0
     Ob0 = cosmo["Omega_b_h2"] / h**2
     m_nu = [cosmo["m_nu"], 0.0, 0.0] * u.eV
+    kw = dict(H0=cosmo["H0"], Om0=cosmo["Omega_bc"], Ob0=Ob0,
+              Tcmb0=cosmo["Tcmb"], Neff=cosmo["Neff"], m_nu=m_nu)
 
-    # Throwaway model just to get the radiation densities astropy will use
-    tmp = cosmology.LambdaCDM(
-        H0=cosmo["H0"], Om0=cosmo["Omega_bc"], Ode0=0.0,
-        Tcmb0=cosmo["Tcmb"], Neff=cosmo["Neff"], m_nu=m_nu, Ob0=Ob0,
-    )
+    flat = np.isclose(cosmo["Omega_k"], 0.0, atol=1e-8)
+    lcdm = np.isclose(cosmo["w"], -1.0) and np.isclose(cosmo["wa"], 0.0)
+
+    if flat and lcdm:
+        return cosmology.FlatLambdaCDM(**kw)
+    if flat:
+        return cosmology.Flatw0waCDM(w0=cosmo["w"], wa=cosmo["wa"], **kw)
+
+    tmp = cosmology.LambdaCDM(Ode0=0.0, **kw)
     Ode0 = 1.0 - cosmo["Omega_bc"] - cosmo["Omega_k"] - tmp.Ogamma0 - tmp.Onu0
-
-    return cosmology.w0waCDM(
-        H0=cosmo["H0"], Om0=cosmo["Omega_bc"], Ob0=Ob0, Ode0=Ode0,
-        w0=cosmo["w"], wa=cosmo["wa"],
-        Tcmb0=cosmo["Tcmb"], Neff=cosmo["Neff"], m_nu=m_nu,
-    )
+    if lcdm:
+        return cosmology.LambdaCDM(Ode0=Ode0, **kw)
+    return cosmology.w0waCDM(Ode0=Ode0, w0=cosmo["w"], wa=cosmo["wa"], **kw)
 
 # ---------------------------------------------------------------------------
 # 3. Unified distance modulus + rm_cosmo
