@@ -629,51 +629,92 @@ def plot_corner_comparison(
 
     return g
 
-def plot_ecp(alphas, ecp, f_vals=None, sim_path=None, file_name="tarp"):
+def plot_ecp(alphas, ecp, f_vals=None, labels=None, sim_path=None, file_name="tarp"):
     """
-    Plot the Empirical Coverage Probability (ECP) curve against credibility.
+    Plot one or several Empirical Coverage Probability (ECP) curves on the same figure.
 
     Parameters
     ----------
-    alphas : array-like
-        Credibility levels evaluated for the test.
-    ecp : array-like
-        Empirical coverage probabilities corresponding to ``alphas``.
+    alphas : array-like or list of array-like
+        Credibility levels. Either a single array shared by all curves, or one
+        array per curve.
+    ecp : array-like or list of array-like
+        Empirical coverage probabilities. A single 1D array, or a list of arrays
+        (one per curve).
+    f_vals : array-like or list of array-like, optional
+        Values used for the KS uniformity test (one array per curve if several).
+    labels : str or list of str, optional
+        Legend label for each curve. Defaults to "ECP" (single) or "ECP 1", "ECP 2", ...
     sim_path : str or pathlib.Path, optional
-        Simulation directory path under which the plot will be saved to
-        ``{sim_path}/Images/{file_name}.png``. If ``None``, the figure is not
-        saved to disk.
+        If given, the figure is saved to ``{sim_path}/Images/{file_name}.png``.
     file_name : str, optional
-        Filename without extension for the exported image. Default is ``"tarp"``.
+        Filename without extension. Default is ``"tarp"``.
 
     Returns
     -------
-    fig : matplotlib.figure.Figure
-        Figure containing the ECP curve.
-    ax : matplotlib.axes.Axes
-        Axes containing the plotted credibility vs coverage curve.
+    fig, ax
     """
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # --- Normalize inputs to lists of 1D arrays ---
+    def as_list(x):
+        if x is None:
+            return None
+        if isinstance(x, np.ndarray) and x.ndim == 1:
+            return [x]
+        if isinstance(x, np.ndarray) and x.ndim == 2:
+            return list(x)
+        if isinstance(x, (list, tuple)) and len(x) > 0 and np.ndim(x[0]) == 0:
+            return [np.asarray(x)]  # flat list of numbers -> single curve
+        return [np.asarray(a) for a in x]
 
-    ax.plot(1 - alphas, ecp, 'o:', ms=6, c=RED, alpha=0.6, label='ECP')  #, yerr=se , label='ECP ± SE'
+    ecp_list = as_list(ecp)
+    n = len(ecp_list)
+
+    if n > 2:
+        raise ValueError("At most two ECP curves are supported.")
+    
+    alphas_list = as_list(alphas)
+    if len(alphas_list) == 1 and n > 1:
+        alphas_list = alphas_list * n  # shared alphas for all curves
+    if len(alphas_list) != n:
+        raise ValueError("`alphas` and `ecp` must contain the same number of curves.")
+
+    f_vals_list = as_list(f_vals)
+    if f_vals_list is not None and len(f_vals_list) != n:
+        raise ValueError("`f_vals` must contain one array per ECP curve.")
+
+    if labels is None:
+        labels = ["ECP"] if n == 1 else [f"ECP {i+1}" for i in range(n)]
+    elif isinstance(labels, str):
+        labels = [labels]
+    if len(labels) != n:
+        raise ValueError("`labels` must have one entry per curve.")
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=(8, 6))
+    # colors = plt.cm.Dark2(np.linspace(0, 1, 8)) if n <= 10 else plt.cm.viridis(np.linspace(0, 1, n))
+    colors = [BLUE, RED]
+
+    for i, (a, e, lab) in enumerate(zip(alphas_list, ecp_list, labels)):
+        if f_vals_list is not None:
+            p_value = stats.kstest(f_vals_list[i], "uniform").pvalue
+            lab = f"{lab} (KS p-value = {100*p_value:.1f} %)"
+        # color = RED if n == 1 else colors[i % len(colors)]
+        color = colors[i]
+        ax.plot(1 - a, e, 'o:', ms=6, c=color, alpha=0.6, label=lab)
+
     ax.plot([0, 1], [0, 1], '-', lw=1, c=BLUE, label='Ideal')
 
     ax.set_xlabel("Credibility")
     ax.set_ylabel("Coverage")
-    if f_vals is not None:
-        p_value = stats.kstest(f_vals, "uniform").pvalue
-        ax.set_title(f"KS test p-value : {100*p_value:.1f} %")
     ax.grid(True, linestyle=':')
     ax.legend()
     ax.set_aspect('equal', adjustable='box')
-
     fig.tight_layout()
 
     if sim_path is not None:
         os.makedirs(f"{sim_path}/Images", exist_ok=True)
         fig.savefig(f"{sim_path}/Images/{file_name}.png")
     plt.show()
-    
     return fig, ax
 
 def plot_posterior_traces(
