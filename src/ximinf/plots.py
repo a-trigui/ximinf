@@ -398,8 +398,8 @@ def plot_HD(
     # ============================================
 
     if images_dir is not None:
-        plt.savefig(
-            images_dir / f"sim_example.png",
+        fig.savefig(
+            images_dir / f"sim_example.pdf",
             bbox_inches='tight'
         )
 
@@ -516,6 +516,7 @@ def plot_corner_comparison(
     contours=(0.68, 0.95),
     param_labels=param_labels,
     save_path=None,
+    file_name=None,
     legend_loc="upper right",
     param_limits=None,
     show=True,
@@ -622,8 +623,8 @@ def plot_corner_comparison(
         title_limit=1,
     )
 
-    if save_path is not None:
-        g.export(save_path)
+    if (save_path is not None) and (file_name is not None):
+        g.export(f"{save_path}/Images/{file_name}.pdf")
     if show:
         plt.show()
 
@@ -713,7 +714,7 @@ def plot_ecp(alphas, ecp, f_vals=None, labels=None, sim_path=None, file_name="ta
 
     if sim_path is not None:
         os.makedirs(f"{sim_path}/Images", exist_ok=True)
-        fig.savefig(f"{sim_path}/Images/{file_name}.png")
+        fig.savefig(f"{sim_path}/Images/{file_name}.pdf")
     plt.show()
     return fig, ax
 
@@ -726,6 +727,7 @@ def plot_posterior_traces(
     param_labels=param_labels,
     method=None,
     save_path=None,
+    file_name=None,
     show=True,
 ):
     """
@@ -796,8 +798,8 @@ def plot_posterior_traces(
 
     plt.tight_layout()
 
-    if save_path is not None:
-        fig.savefig(save_path, bbox_inches="tight")
+    if (save_path is not None) & (file_name is not None):
+        fig.savefig(f"{save_path}/Images/{file_name}.pdf", bbox_inches="tight")
 
     if show:
         plt.show()
@@ -875,7 +877,7 @@ def plot_bias_histograms(mu_list, mu_nn, names, param_labels=param_labels,
     plt.tight_layout()
     if sim_path is not None:
         os.makedirs(f"{sim_path}/Images", exist_ok=True)
-        figs.savefig(f"{sim_path}/Images/{file_name}.png")
+        figs.savefig(f"{sim_path}/Images/{file_name}.pdf")
     plt.show()
 
 def plot_bias_summary(mu_list, mu_nn, cov_list, names, param_labels=param_labels,
@@ -943,7 +945,7 @@ def plot_bias_summary(mu_list, mu_nn, cov_list, names, param_labels=param_labels
     plt.tight_layout()
     if sim_path is not None:
         os.makedirs(f"{sim_path}/Images", exist_ok=True)
-        fig.savefig(f"{sim_path}/Images/{file_name}.png")
+        fig.savefig(f"{sim_path}/Images/{file_name}.pdf")
     plt.show()
 
 
@@ -1025,6 +1027,6 @@ def plot_covariance_ratio(cov_list_1, cov_list_2, names,
     plt.tight_layout()
     if sim_path is not None:
         os.makedirs(f"{sim_path}/Images", exist_ok=True)
-        fig.savefig(f"{sim_path}/Images/{file_name}.png")
+        fig.savefig(f"{sim_path}/Images/{file_name}.pdf")
 
     plt.show()

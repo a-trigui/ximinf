@@ -487,46 +487,25 @@ def make_optimizer(model, cfg):
 # 6. Training loop helpers
 # ===============================================================
 def run_epoch(model, x, y, batch_size, gpu, optimizer=None):
-    """
-    Execute one training or evaluation epoch over mini-batches.
 
-    Parameters
-    ----------
-    model : nnx.Module
-        Neural network model.
-    x : jax.Array
-        Input features tensor.
-    y : jax.Array
-        Target labels tensor.
-    batch_size : int
-        Mini-batch size.
-    gpu : jax.Device
-        Target JAX device for computation.
-    optimizer : nnx.Optimizer, optional
-        Flax NNX optimizer. If provided, gradient updates are performed;
-        if ``None``, only loss and accuracy are evaluated.
-
-    Returns
-    -------
-    mean_loss : float
-        Mean binary cross-entropy loss over all batches.
-    mean_acc : float
-        Mean classification accuracy over all batches.
-    """
     total_loss, total_acc, total_n = 0.0, 0.0, 0
+
     for i in range(0, len(x), batch_size):
         bx = jax.device_put(x[i:i + batch_size], gpu)
         by = jax.device_put(y[i:i + batch_size], gpu)
 
+        if optimizer is not None:
+            model.train()
+            train_step(model, optimizer, (bx, by))
+
+        model.eval()
         loss, _ = loss_fn(model, (bx, by))
         acc = accuracy_fn(model, (bx, by))
+
         n = len(bx)
         total_loss += loss * n
         total_acc += acc * n
         total_n += n
-
-        if optimizer is not None:
-            train_step(model, optimizer, (bx, by))
 
     return total_loss / total_n, total_acc / total_n
 
@@ -681,10 +660,8 @@ def train_loop(model, optimizer, resample_fn, val_xy, key, cfg, gpu, plot_info):
         # randomly ordered with respect to the labels, so no extra shuffle needed
         train_x, train_y = resample_fn(resample_key)
 
-        model.train()
         tr_loss, tr_acc = run_epoch(model, train_x, train_y, cfg["batch_size"], gpu, optimizer)
 
-        model.eval()
         va_loss, va_acc = run_epoch(model, val_x, val_y, cfg["batch_size"], gpu)
 
         # snapshot the raw weights at the end of every epoch
